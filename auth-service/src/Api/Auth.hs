@@ -76,7 +76,7 @@ loginEndpoint (Just redirectFlag) = do
   let payload = OpenIDCode {reqState=Just $ "redirect=" <> redirectFlag, reqRedirectUri="/api/auth/callback", reqClientID=authClient}
   let link = generateAuthUrl (keycloakUrl { baseUrlPath = baseUrlPath keycloakUrl <> "/realms/" <> T.unpack keycloakRealm <> "/protocol/openid-connect/auth" }) payload
   tempRedirectTo link
-loginEndpoint Nothing = undefined
+loginEndpoint Nothing = loginEndpoint (Just "/")
 
 logoutEndpoint = undefined
 
