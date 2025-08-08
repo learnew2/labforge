@@ -1,0 +1,42 @@
+services:
+  postgresql:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    hostname: postgres
+    container_name: keycloak-db
+    environment:
+      POSTGRES_USER: dbuser
+      POSTGRES_PASSWORD: dbpass
+      POSTGRES_DB: keycloak
+      PGDATA: /data/postgres
+    volumes:
+      - ../pgdata:/data/postgres
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2.5
+    restart: unless-stopped
+    container_name: keycloak
+    command: start-dev
+    ports:
+      - 8080:8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: dbuser
+      KC_DB_PASSWORD: dbpass
+  redis:
+    image: redis:8.2.0-bookworm
+    restart: unless-stopped
+    container_name: redis
+    ports:
+      - 6379:6379
+  dev-nginx:
+    image: labforge-nginx
+    container_name: labforge-nginx
+    hostname: nginx
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/conf.dev/:/etc/nginx/conf.d/:ro
