@@ -93,7 +93,7 @@ loginCallback (Just code) (Just url) = do
       $(logError) $ "Failed to request user access token: " <> (T.pack . show) e
       loginFailEndpoint
     (Right (GrantResponse { .. })) -> do
-      throwError $ err307 { errHeaders = [("Location", BS.pack redirectUrl), ("Set-Cookie", BS.pack $ "token=" <> T.unpack accessToken <> "; Max-Age=" <> show authCookieAge)] }
+      throwError $ err307 { errHeaders = [("Location", BS.pack redirectUrl), ("Set-Cookie", BS.pack $ "token=" <> T.unpack accessToken <> "; Max-Age=" <> show authCookieAge <> "; Path=/")] }
 loginCallback _ _ = loginFailEndpoint
 
 createRole :: BearerWrapper -> RoleCreateRequest -> AppT ()
