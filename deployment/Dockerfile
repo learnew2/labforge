@@ -10,5 +10,6 @@ ENV PATH=${PATH}:/root/.ghcup/bin
 RUN stack update
 WORKDIR /ln2
 RUN apt-get install zlib1g-dev libpq-dev -y
+RUN echo "system-ghc: true" >> /root/.stack/config.yaml
 COPY . .
 RUN make install-deps
