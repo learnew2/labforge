@@ -26,9 +26,11 @@ module Api.Auth
 import           Api.Keycloak.Client
 import           Api.Keycloak.Models
 import           Api.Keycloak.Models.Auth
+import           Api.Keycloak.Models.Group
 import           Api.Keycloak.Models.Introspect
 import           Api.Keycloak.Models.Role
 import           Api.Keycloak.Models.Token
+import           Api.Keycloak.Models.User
 import           Api.Keycloak.Utils
 import           Api.Redirect
 import           Api.Retry
@@ -64,6 +66,44 @@ authServer =
   :<|> logoutEndpoint
   :<|> loginFailEndpoint
   :<|> loginCallback
+  :<|> getPagedGroups
+  :<|> getAllGroups
+  :<|> getPagedMembers
+  :<|> getAllMembers
+
+getPagedGroups :: BearerWrapper -> Maybe Int -> AppT [FoundGroup]
+getPagedGroups (BearerWrapper token) pageN = do
+  _ <- requireRealmRoles token ["group-read"]
+  Config { .. } <- ask
+  withTokenVariable'' $ \t -> runClientApp keycloakEnv $ getRealmGroups keycloakRealm (fromMaybe 1 pageN) (BearerWrapper t)
+
+getAllGroups :: BearerWrapper -> AppT [FoundGroup]
+getAllGroups (BearerWrapper token) = do
+  _ <- requireRealmRoles token ["group-read"]
+  Config { .. } <- ask
+  withTokenVariable'' $ \t -> runClientApp keycloakEnv $ getAllRealmGroups keycloakRealm (BearerWrapper t)
+
+getPagedMembers :: Text -> BearerWrapper -> Maybe Int -> AppT [BriefUser]
+getPagedMembers groupName' (BearerWrapper token) pageN = do
+  _ <- requireRealmRoles token ["user-read"]
+  Config { .. } <- ask
+  withTokenVariable'' $ \t -> do
+    allGroups <- getAllGroups (BearerWrapper t)
+    case filter ((==) groupName' . groupName) allGroups of
+      [] -> sendJSONError err404 (JSONError "GroupNotFound" "Group is not found" Null)
+      (FoundGroup { groupID=groupID }:_) -> do
+        runClientApp keycloakEnv $ getGroupMembers keycloakRealm groupID (fromMaybe 1 pageN) (BearerWrapper t)
+
+getAllMembers :: Text -> BearerWrapper -> AppT [BriefUser]
+getAllMembers groupName' (BearerWrapper token) = do
+  _ <- requireRealmRoles token ["user-read"]
+  Config { .. } <- ask
+  withTokenVariable'' $ \t -> do
+    allGroups <- getAllGroups (BearerWrapper t)
+    case filter ((==) groupName' . groupName) allGroups of
+      [] -> sendJSONError err404 (JSONError "GroupNotFound" "Group is not found" Null)
+      (FoundGroup { groupID=groupID }:_) -> do
+        runClientApp keycloakEnv $ getAllGroupMembers keycloakRealm groupID (BearerWrapper t)
 
 getCapabilities :: BearerWrapper -> AppT [Text]
 getCapabilities (BearerWrapper token) = do
