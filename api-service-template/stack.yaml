@@ -8,4 +8,4 @@ extra-deps:
 - git: https://github.com/learnew2/keycloak-api.git
   commit: 5b5c25ab644379d02abba9d1ed7f415ce79df89c
 - git: https://github.com/learnew2/api-common.git
-  commit: 6fc0382770dc215c672bbd70db40d729cea402c0
+  commit: 702fc6ffe1d1ce178758983feb56af6670cca61d
