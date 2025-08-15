@@ -9,8 +9,12 @@ services:
       POSTGRES_PASSWORD: dbpass
       POSTGRES_DB: keycloak
       PGDATA: /data/postgres
+      POSTGRES_MULTIPLE_DATABASES: labforge
     volumes:
       - ../pgdata:/data/postgres
+      - ./db-script.sh:/docker-entrypoint-initdb.d/db-script.sh:ro
+    ports:
+      - 5432:5432
   keycloak:
     image: quay.io/keycloak/keycloak:26.2.5
     restart: unless-stopped
