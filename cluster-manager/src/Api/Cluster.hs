@@ -124,8 +124,8 @@ getWebsockifyConfig :: AppT Text
 getWebsockifyConfig = let
   helper :: Text -> [ClusterNode] -> Text
   helper acc (ClusterNode { .. }:nodes) = do
-    let ports = filter (`notElem` nodeExcludedPorts) [nodeMinDisplay..nodeMaxDisplay]
-    let lines = map (\display -> nodeName <> "-" <> (T.pack . show) display <> ": " <> nodeDisplayIP <> ":" <> (T.pack . show) display) ports
+    let ports = filter (\x -> 5900 + x `notElem` nodeExcludedPorts) [nodeMinDisplay..nodeMaxDisplay]
+    let lines = map (\display -> nodeName <> "-" <> (T.pack . show) display <> ": " <> nodeDisplayIP <> ":" <> (T.pack . show) (5900 + display)) ports
     helper (acc <> T.intercalate "\n" lines <> "\n") nodes
   helper acc [] = acc
   in do
