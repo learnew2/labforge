@@ -33,17 +33,24 @@ import           Data.Text                      (Text, pack, unpack)
 import           Models.JSONError
 import           Redis.Common
 import           Servant.Server
+import           System.CPUTime
 
 lookupToken :: Text -> AppT IntrospectResponse
 lookupToken token = let
   getTokenResp = do
+    startTime <- liftIO getCPUTime
     Config { .. } <- ask
     tokenResp <- runClientApp keycloakEnv $ validateToken keycloakRealm (IntrospectRequest {reqToken=token, reqClientSecret=keycloakClientSecret, reqClientID=keycloakClientID})
     case tokenResp of
       (Left _) -> sendJSONError err401 (JSONError "unauthorized" "Failed to check token" Null)
-      (Right resp) -> (pure . Just) resp
+      (Right resp) -> do
+        $(logDebug) $ "Cached new token value!"
+        endTime <- liftIO getCPUTime
+        let diff = (fromIntegral (endTime - startTime)) / (10^12)
+        $(logDebug) $ "Got token data in " <> (pack . show) diff
+        (pure . Just) resp
   in do
-    v <- getOrCacheJsonValue (Just 5) (unpack token) getTokenResp
+    v <- getOrCacheJsonValue (Just 10) (unpack token) getTokenResp
     $(logDebug) $ "Checking token " <> token <> ":" <> (pack . show) v
     case v of
       (Left _) -> sendJSONError err401 (JSONError "unauthorized" "Failed to check token" Null)
