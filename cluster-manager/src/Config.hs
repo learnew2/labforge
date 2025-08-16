@@ -34,6 +34,7 @@ import           Database.Persist.Postgresql
 import           Database.Redis
 import           Servant
 import           Servant.Client
+import           Service.Environment
 
 type LogFunction = Loc -> LogSource -> LogLevel -> LogStr -> IO ()
 
@@ -51,12 +52,15 @@ data Config = Config
   , serviceCredentials :: !(Text, Text)
   , authToken          :: !(TokenVariable Text)
   , authFunctions      :: TokenVariableFunctions Text
-  , redisConnection    :: !Connection
+  , authEnv            :: !ClientEnv
   }
 
 instance HasTokenVariable Config Text where
   getTokenVariable = authToken
   getTokenFunctions = authFunctions
+
+instance ServiceEnvironment Config where
+  getEnvFor AuthService = authEnv
 
 runClientApp :: ClientEnv -> ClientM a -> AppT (Either ClientError a)
 runClientApp env m = liftIO $ runClientM m env

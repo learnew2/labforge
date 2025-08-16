@@ -60,17 +60,14 @@ runCommand AppOpts { debugOn=debug, appCommand=RunServerOn port runMigrate } = d
   creds <- runLoggingT requireKeycloakClient logFunction
   tokenV <- createTokenVar
   (authUrl, authManager) <- runLoggingT (requireServiceEnv "AUTH") logFunction
-  redisConn <- redisConnectionFromEnv
-  when (isNothing $ redisConn) $ do
-    flip runLoggingT logFunction $ $(logError) $ "Invalid redis connection!"
-    exitWith (ExitFailure 1)
 
+  let authEnv = mkClientEnv authManager authUrl
   let config = Config { serviceCredentials=creds
     , logFunction=logFunction
     , configDBPool=pool
     , authToken=tokenV
-    , authFunctions=genericTokenFunctions logFunction creds (mkClientEnv authManager authUrl)
-    , redisConnection = fromJust redisConn
+    , authEnv=authEnv
+    , authFunctions=genericTokenFunctions logFunction creds authEnv
     }
   let app' = app config
   _ <- flip runLoggingT logFunction $ $(logInfo) "Starting server!"
