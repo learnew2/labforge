@@ -40,6 +40,8 @@ dependencies:
 - api-common
 - proxmox-api
 - redis-utils
+- proxmox-deploy-toolkit
+- proxmox-fs-agent-api
 
 ghc-options:
 - -Wall

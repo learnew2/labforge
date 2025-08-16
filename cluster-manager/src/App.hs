@@ -15,16 +15,17 @@ along with this program; if not, see <http://www.gnu.org/licenses>. -}
 {-# LANGUAGE OverloadedStrings #-}
 module App (app) where
 
-import           Api.Sample
+import           Api.Cluster
+import           Cluster.Schema
 import           Config
 import           Control.Monad.Reader
 import           Data.Aeson
 import           Servant
 
-type CombinedAPI = SampleAPI
+type CombinedAPI = ClusterManagerAPI
 
 combinedServerT :: ServerT CombinedAPI AppT
-combinedServerT = sampleServer
+combinedServerT = clusterServer
 
 combinedServer :: Config -> Server CombinedAPI
 combinedServer cfg = hoistServer combinedApi (runServer cfg) combinedServerT

@@ -25,7 +25,7 @@ source-repository head
 
 library
   exposed-modules:
-      Api.Sample
+      Api.Cluster
       App
       App.Commands
       App.Parser
@@ -60,6 +60,8 @@ library
     , persistent-postgresql ==2.13.6.1
     , persistent-sqlite ==2.13.2.0
     , proxmox-api
+    , proxmox-deploy-toolkit
+    , proxmox-fs-agent-api
     , redis-utils
     , resource-pool ==0.4.0.0
     , servant-client ==0.19
@@ -100,6 +102,8 @@ executable cluster-manager
     , persistent-postgresql ==2.13.6.1
     , persistent-sqlite ==2.13.2.0
     , proxmox-api
+    , proxmox-deploy-toolkit
+    , proxmox-fs-agent-api
     , redis-utils
     , resource-pool ==0.4.0.0
     , servant-client ==0.19
