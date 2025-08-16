@@ -46,6 +46,7 @@ DeployNode
   name Text
   data ClusterNode sqltype=jsonb
   deriving Show
+  NameUnique
 |]
 
 instance PersistField ClusterNode where
