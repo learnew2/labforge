@@ -6,7 +6,7 @@ packages:
 
 extra-deps:
 - git: https://github.com/learnew2/keycloak-api.git
-  commit: 5b5c25ab644379d02abba9d1ed7f415ce79df89c
+  commit: 79c2e38f061d06701d9e412d55d50efa4fbd5229
 - git: https://github.com/learnew2/redis-utils.git
   commit: 3a9b7f55bed282b02da41bf849c5334548cbcaf5
 - git: https://github.com/learnew2/api-common.git
