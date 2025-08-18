@@ -1,4 +1,4 @@
-HS_SERVICES=auth-service
+HS_SERVICES=auth-service cluster-manager deployment-api
 IMAGES_LIST=labforge-auth
 COMPOSE_BIN=docker compose
 ENV_FILE=.env
