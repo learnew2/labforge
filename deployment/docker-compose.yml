@@ -46,7 +46,7 @@ services:
       - ./nginx/conf.dev/:/etc/nginx/conf.d/:ro
   dev-rabbitmq:
     image: rabbitmq:3.13-rc-management-alpine
-    container_name: ln2-dev-rabbitmq
+    container_name: labforge-rabbitmq
     hostname: rabbitmq
     ports:
       - 5672:5672
@@ -60,3 +60,12 @@ services:
       interval: 3s
       timeout: 3s
       retries: 5
+  dev-websocket:
+    image: labforge-websockify
+    container_name: labforge-websockify
+    hostname: websockify
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./websockify/tokens.cfg:/tokens.cfg:ro
+      - ./websockify/entrypoint.sh:/entrypoint.sh:ro
