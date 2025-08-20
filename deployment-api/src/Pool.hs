@@ -22,7 +22,6 @@ module Pool
   , putTask
   ) where
 
-import           Config
 import           Control.Concurrent
 import           Control.Concurrent.Async
 import           Control.Concurrent.QSemN
@@ -34,29 +33,28 @@ import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Data.Text                     (Text, pack)
 
-data AsyncPool a = AsyncPool
+data AsyncPool a m = AsyncPool
   { poolThreads  :: ![Async ()]
-  , poolCallback :: a -> AppT ()
+  , poolCallback :: TQueue a -> a -> m ()
   , poolQueue    :: !(TQueue a)
   , poolSem      :: !QSemN
   }
 
-createPool :: (a -> AppT ()) -> (AppT () -> IO ()) -> Int -> IO (AsyncPool a)
-createPool f appToIO tasks = let
-  tF :: QSemN -> TQueue a -> (a -> AppT ()) -> Int -> AppT ()
-  tF sem q callback workerNum  = do
-    $(logInfo) $ "Stated worker " <> (pack . show) workerNum
-    forever $ do
-      $(logDebug) $ "Worker " <> (pack . show) workerNum <> " reading query"
-      task <- (liftIO . atomically) $ tryReadTQueue q
-      case task of
-        Nothing  -> (liftIO . threadDelay) 1000000
-        (Just t) -> liftIO $ bracket_ (waitQSemN sem 1) (signalQSemN sem 1) (appToIO $ callback t)
-  in do
+createPool :: forall a m. (MonadLogger m, MonadIO m) => (TQueue a -> a -> m ()) -> (m () -> IO ()) -> Int -> IO (AsyncPool a m)
+createPool f appToIO tasks = do
   sem <- newQSemN tasks
   q <- newTQueueIO
   threads <- mapM (async . appToIO . tF sem q f) [1..tasks]
-  pure $ AsyncPool threads f q sem
+  pure $ AsyncPool threads f q sem where
+    tF :: QSemN -> TQueue a -> (TQueue a -> a -> m ()) -> Int -> m ()
+    tF sem q callback workerNum  = do
+      $(logInfo) $ "Stated worker " <> (pack . show) workerNum
+      forever $ do
+        $(logDebug) $ "Worker " <> (pack . show) workerNum <> " reading query"
+        task <- (liftIO . atomically) $ tryReadTQueue q
+        case task of
+          Nothing  -> (liftIO . threadDelay) 1000000
+          (Just t) -> liftIO $ bracket_ (waitQSemN sem 1) (signalQSemN sem 1) (appToIO $ callback q t)
 
-putTask :: (MonadIO m) => AsyncPool a -> a -> m ()
+putTask :: (MonadIO m) => AsyncPool a n -> a -> m ()
 putTask (AsyncPool { .. }) t = (liftIO . atomically) $ writeTQueue poolQueue t

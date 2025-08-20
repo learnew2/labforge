@@ -36,14 +36,23 @@ import           Config
 import           Control.Monad.IO.Class
 import           Control.Monad.Reader
 import           Data.Aeson
+import qualified Data.ByteString.Char8           as BS
+import qualified Data.ByteString.Lazy.Char8      as LBS
+import qualified Data.Map                        as M
 import           Data.Text
+import qualified Data.Text                       as T
 import           Database.Persist.Sql
 import           Database.Persist.TH
 import           Deployment.Models.Deployment
 import           Proxmox.Deploy.Models.Config
 import           Proxmox.Deploy.Models.Config.VM
+import           Proxmox.Deploy.Types
 
 share [ mkPersist sqlSettings, mkMigrate "migrateAll"] [persistLowerCase|
+MachineTemplateData
+  name Text
+  NameUnique
+  deriving Show Eq
 DeploymentTemplateData
   ownerId Text
   title Text
@@ -53,12 +62,14 @@ DeploymentTemplateData
   UniqueTitle
   deriving Show Eq
 DeploymentInstanceData
-  Id Text
+  Id Text Primary
   parent DeploymentTemplateDataId OnDeleteRestrict OnUpdateCascade
   onwerId Text
-  deployConfig DeployConfig
+  deployConfig DeployConfig Maybe
   state DeploymentStatus
   logs [Text] sqltype=jsonb
+  networkNamesMap (M.Map String String) sqltype=jsonb
+  vmLinks (M.Map String String) sqltype=jsonb
   deriving Show
 UsedVMID
   num Int Primary
@@ -70,7 +81,26 @@ UsedDisplay
   usedBy DeploymentInstanceDataId OnDeleteCascade OnUpdateCascade
   UniqueNum
   deriving Show
+UsedBridges
+  name Text Primary
+  usedBy DeploymentInstanceDataId OnDeleteCascade OnUpdateCascade
+  UniqueName
+  deriving Show
 |]
+
+instance PersistField TransactionData where
+  toPersistValue = toPersistValueJSON
+  fromPersistValue = fromPersistValueJSON
+
+instance PersistFieldSql TransactionData where
+  sqlType _ = SqlOther "JSONB"
+
+instance PersistField (M.Map String String) where
+  toPersistValue = toPersistValueJSON
+  fromPersistValue = fromPersistValueJSON
+
+instance PersistFieldSql (M.Map String String) where
+  sqlType _ = SqlOther "JSONB"
 
 instance PersistField DeploymentStatus where
   toPersistValue = toPersistValueJSON
@@ -86,12 +116,19 @@ instance PersistField DeployConfig where
 instance PersistFieldSql DeployConfig where
   sqlType _ = SqlOther "JSONB"
 
-instance PersistField ConfigVM where
+instance PersistField [ConfigVM] where
+  toPersistValue = toPersistValueJSON
+  fromPersistValue (PersistByteString bs) = case (eitherDecode . BS.fromStrict) bs of
+                                              (Left e)  -> (Left . T.pack) e
+                                              (Right r) -> pure r
+  fromPersistValue v = error (show v)
+
+instance PersistFieldSql [ConfigVM] where
+  sqlType _ = SqlOther "JSONB"
+
+instance PersistField [Text] where
   toPersistValue = toPersistValueJSON
   fromPersistValue = fromPersistValueJSON
-
-instance PersistFieldSql ConfigVM where
-  sqlType _ = SqlOther "JSONB"
 
 doMigration :: SqlPersistT IO ()
 doMigration = runMigration migrateAll

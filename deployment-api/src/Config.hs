@@ -20,6 +20,7 @@ module Config
   , defaultLogF
   , filterLogF
   , runClientApp
+  , appTIO
   ) where
 
 import           Api.Keycloak.Token
@@ -31,9 +32,15 @@ import           Data.ByteString.Char8       (unpack)
 import           Data.Pool                   (Pool)
 import           Data.Text                   (Text)
 import           Database.Persist.Postgresql
+import           Models
 import           Network.AMQP
+import           Pool                        (AsyncPool)
 import           Servant
 import           Servant.Client
+import           Service.Environment
+
+appTIO :: AppT a -> Config -> IO (Either ServerError a)
+appTIO m cfg = (runHandler . flip runReaderT cfg . runApp) m
 
 type LogFunction = Loc -> LogSource -> LogLevel -> LogStr -> IO ()
 
@@ -45,6 +52,9 @@ instance MonadLogger AppT where
     f <- asks logFunction
     liftIO $ f loc src level (toLogStr msg)
 
+instance MonadLoggerIO AppT where
+  askLoggerIO = asks logFunction
+
 data Config = Config
   { configDBPool       :: !(Pool SqlBackend)
   , logFunction        :: !LogFunction
@@ -52,8 +62,16 @@ data Config = Config
   , authToken          :: !(TokenVariable Text)
   , authFunctions      :: TokenVariableFunctions Text
   , clusterEnv         :: !ClientEnv
-  , rabbitConnection   :: !Connection
+  --, rabbitConnection   :: !Connection
+  , authEnv            :: !ClientEnv
+  , tasksPool          :: AsyncPool QueryRequest AppT
+  , deploySDNZone      :: !Text
   }
+
+instance ServiceEnvironment Config where
+  getEnvFor AuthService       = authEnv
+  getEnvFor ClusterManager    = clusterEnv
+  getEnvFor DeploymentService = error "DeploymentService env is not specified"
 
 instance HasTokenVariable Config Text where
   getTokenVariable = authToken

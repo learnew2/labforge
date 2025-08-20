@@ -37,6 +37,8 @@ dependencies:
 - exceptions == 0.10.5
 - async == 2.2.4
 - amqp == 0.22.1
+- containers == 0.6.7
+- stm == 2.5.1.0
 - keycloak-api
 - api-common
 - proxmox-api
