@@ -33,10 +33,10 @@ import           Config
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Data.Aeson
-import qualified Data.Map                              as M
+import qualified Data.Map                                 as M
 import           Data.Maybe
-import           Data.Text                             (Text)
-import qualified Data.Text                             as T
+import           Data.Text                                (Text)
+import qualified Data.Text                                as T
 import           Database
 import           Database.Persist
 import           Database.Persist.Postgresql
@@ -45,9 +45,14 @@ import           Deployment.Schema
 import           Models
 import           Models.JSONError
 import           Pool
+import           Proxmox.Deploy.Models.Config
+import           Proxmox.Deploy.Models.Config.Deploy
+import           Proxmox.Deploy.Models.Config.DeployAgent
+import           Proxmox.Deploy.Models.Config.Network
 import           Proxmox.Deploy.Models.Config.Template
+import           Proxmox.Deploy.Models.Config.VM
 import           Servant
-import           Text.Read                             (read, readMaybe)
+import           Text.Read                                (read, readMaybe)
 
 templateAdminRole = "image-admin"
 templateReadRole = "image-view"
@@ -181,8 +186,32 @@ callGroupDeployment tID groupName (BearerWrapper token) = do
             putTask tasksPool (GroupDeployment tID group)
             pure ()
 
+-- TODO: unify with function upper
+callGroupDestroy :: Int -> Maybe Text -> BearerWrapper -> AppT ()
+callGroupDestroy tID groupName (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
+  case groupName of
+    Nothing -> sendJSONError err400 (JSONError "badRequest" "Group name is not set" Null)
+    (Just group) -> do
+      template' <- runDB $ get (DeploymentTemplateDataKey . fromIntegral $ tID)
+      case template' of
+        Nothing -> sendJSONError err400 (JSONError "notFound" "Template not found" Null)
+        (Just (DeploymentTemplateData { .. })) -> do
+          if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
+            sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
+          else do
+            Config { .. } <- ask
+            _ <- withTokenVariable'' $ \t -> do
+              runClientApp authEnv (getPagedGroupMembers group (BearerWrapper t) Nothing)
+            $(logInfo) $ "Sending group destroy of template " <> (T.pack . show) tID <> " for group " <> group
+            putTask tasksPool (GroupDestroy tID group)
+            pure ()
+
+callGroupPower = undefined
+setDeploymentInstancePower = undefined
+
 deploymentInstanceKey :: DeploymentInstanceData -> Text
-deploymentInstanceKey e = deploymentInstanceDataOnwerId e <> "-" <>
+deploymentInstanceKey e = deploymentInstanceDataOwnerId e <> "-" <>
   (T.pack . show . (fromIntegral :: (Integral a) => a -> Int) . fromSqlKey . deploymentInstanceDataParent) e
 
 getDeploymentTemplateInstances :: Int -> Maybe Int -> BearerWrapper -> AppT (PagedResponse [DeploymentInstanceBrief])
@@ -201,7 +230,7 @@ getDeploymentTemplateInstances tID pageN (BearerWrapper token) = do
         pure $ PagedResponse
           { responseObjects=map
             (\e -> DeploymentInstanceBrief
-              { briefDeploymentUser=(deploymentInstanceDataOnwerId . entityVal) e
+              { briefDeploymentUser=(deploymentInstanceDataOwnerId . entityVal) e
               , briefDeploymentTitle=deploymentTemplateDataTitle
               , briefDeploymentStatus=(deploymentInstanceDataState . entityVal) e
               , briefDeploymentId=deploymentInstanceKey (entityVal e)
@@ -218,7 +247,7 @@ getMyTemplateInstances pageN (BearerWrapper token) = let
   helper acc ((Entity _ e):l) = do
     ~(Just (DeploymentTemplateData { .. })) <- runDB $ get (deploymentInstanceDataParent e)
     let brief = DeploymentInstanceBrief {
-        briefDeploymentUser=deploymentInstanceDataOnwerId e
+        briefDeploymentUser=deploymentInstanceDataOwnerId e
       , briefDeploymentTitle=deploymentTemplateDataTitle
       , briefDeploymentStatus=deploymentInstanceDataState e
       , briefDeploymentId=deploymentInstanceKey e
@@ -231,8 +260,8 @@ getMyTemplateInstances pageN (BearerWrapper token) = let
     Nothing -> $(logWarn) "Empty token UUID" >> pure (PagedResponse {responseObjects=[], responsePageSize=0, responseTotal=0})
     (Just userId) -> do
       let page = max 1 $ fromMaybe 1 pageN
-      instancesCount <- runDB $ count [ DeploymentInstanceDataOnwerId ==. userId ]
-      instances <- runDB $ selectList [ DeploymentInstanceDataOnwerId ==. userId ] [LimitTo pageSize, OffsetBy $ pageSize * (page - 1)]
+      instancesCount <- runDB $ count [ DeploymentInstanceDataOwnerId ==. userId ]
+      instances <- runDB $ selectList [ DeploymentInstanceDataOwnerId ==. userId ] [LimitTo pageSize, OffsetBy $ pageSize * (page - 1)]
       r <- helper [] instances
       pure $ PagedResponse
         { responseObjects=r
@@ -249,10 +278,10 @@ getDeploymentInstance instanceId (BearerWrapper token) = do
     Nothing -> sendJSONError err404 (JSONError "deploymentNotFound" "Deployment not found" Null)
     (Just (DeploymentInstanceData { .. })) -> do
       ~(Just (DeploymentTemplateData { .. })) <- runDB $ get deploymentInstanceDataParent
-      if Just deploymentTemplateDataOwnerId /= tokenUUID && Just deploymentInstanceDataOnwerId /= tokenUUID && not isAdmin then sendJSONError err403 (JSONError "notOwner" "You do not own this instance!" Null) else do
+      if Just deploymentTemplateDataOwnerId /= tokenUUID && Just deploymentInstanceDataOwnerId /= tokenUUID && not isAdmin then sendJSONError err403 (JSONError "notOwner" "You do not own this instance!" Null) else do
         pure $ DeploymentInstance
-          { instanceVMLinks=M.mapKeys (T.pack) $ M.map (T.pack) deploymentInstanceDataVmLinks
-          , instanceUser=deploymentInstanceDataOnwerId
+          { instanceVMLinks=M.mapKeys T.pack $ M.map T.pack (if isAdmin then deploymentInstanceDataVmLinks else M.filterWithKey (\k _ -> T.pack k `elem` deploymentTemplateDataAvailableVMs) deploymentInstanceDataVmLinks)
+          , instanceUser=deploymentInstanceDataOwnerId
           , instanceTitle=deploymentTemplateDataTitle
           , instanceState=deploymentInstanceDataState
           , instanceOf=(fromIntegral . fromSqlKey) deploymentInstanceDataParent
@@ -276,12 +305,36 @@ vmPortAccessCheck vmPort (BearerWrapper token) = do
   r <- lookupToken token
   case r of
     InactiveToken -> sendJSONError err401 (JSONError "" "" Null)
-    (ActiveToken { .. }) -> do
+    (ActiveToken { tokenUUID = Nothing }) -> sendJSONError err401 (JSONError "" "" Null)
+    (ActiveToken { tokenUUID = Just uid,.. }) -> do
       case splitVmPort vmPort of
         Nothing -> sendJSONError err403 (JSONError "" "" Null)
-        (Just (nodeName, vmid)) -> do
-          $(logDebug) $ "Checking access from " <> tokenUsername <> " to " <> nodeName <> ", " <> (T.pack . show) vmid
-          pure ()
+        (Just (nodeName, display)) -> do
+          $(logDebug) $ "Checking access from " <> tokenUsername <> " to " <> nodeName <> ", " <> (T.pack . show) display
+          relatedAllocations <- runDB $ selectList [ UsedDisplayNum ==. display, UsedDisplayNodeName ==. nodeName ] []
+          relatedInstances <- runDB $ selectFirst
+            [ DeploymentInstanceDataId <-. map (usedDisplayUsedBy . entityVal) relatedAllocations
+            , DeploymentInstanceDataDeployConfig !=. Nothing ] []
+          case relatedInstances of
+            Nothing -> do
+              $(logWarn) "No related instances found!"
+              sendJSONError err401 (JSONError "" "" Null)
+            Just (Entity _ DeploymentInstanceData { .. }) -> do
+              let usedVMName = filter (\vm -> configVMDisplay vm == Just display) (deployVMs $ fromJust deploymentInstanceDataDeployConfig)
+              case usedVMName of
+                [] -> do
+                  $(logWarn) $ "Couldnt find VM with display " <> (T.pack . show) display
+                  sendJSONError err403 (JSONError "" "" Null)
+                (vm:[]) -> do
+                  ~(Just (DeploymentTemplateData { .. })) <- runDB $ get deploymentInstanceDataParent
+                  if uid == deploymentTemplateDataOwnerId then $(logDebug) "Admin access. Allowed." >> pure () else do
+                    if uid /= deploymentInstanceDataOwnerId then $(logDebug) "Not admin and not owner" >> sendJSONError err403 (JSONError "notOwner" "" Null) else
+                      if T.pack (configVMName vm) `elem` deploymentTemplateDataAvailableVMs then $(logDebug) "Stand owner to available VM. Allowed." >> pure () else
+                        $(logDebug) "Stand owner to not available VM. Not allowed." >> sendJSONError err403 (JSONError "notAvailable" "" Null)
+                _manyVMs -> do
+                  $(logError) $ "There is several VM with same display!"
+                  sendJSONError err500 (JSONError "internalError" "" Null)
+
 
 deploymentServer :: ServerT DeploymentAPI AppT
 deploymentServer = getPagedTemplates
@@ -293,11 +346,14 @@ deploymentServer = getPagedTemplates
   :<|> deleteDeploymentTemplate
   :<|> patchDeploymentTemplate
   :<|> callGroupDeployment
+  :<|> callGroupDestroy
+  :<|> callGroupPower
   :<|> requestDeploymentVMID
   :<|> requestDeploymentDisplay
   :<|> getDeploymentTemplateInstances
   :<|> getMyTemplateInstances
   :<|> getDeploymentInstance
+  :<|> setDeploymentInstancePower
   :<|> getVMPortPower
   :<|> switchVMPortPower
   :<|> getVMPortNetworks

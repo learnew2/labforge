@@ -64,7 +64,7 @@ DeploymentTemplateData
 DeploymentInstanceData
   Id Text Primary
   parent DeploymentTemplateDataId OnDeleteRestrict OnUpdateCascade
-  onwerId Text
+  ownerId Text
   deployConfig DeployConfig Maybe
   state DeploymentStatus
   logs [Text] sqltype=jsonb
@@ -77,9 +77,10 @@ UsedVMID
   UniqueNum
   deriving Show
 UsedDisplay
-  num Int Primary
+  num Int
+  nodeName Text
   usedBy DeploymentInstanceDataId OnDeleteCascade OnUpdateCascade
-  UniqueNum
+  Primary num nodeName
   deriving Show
 UsedBridges
   name Text Primary

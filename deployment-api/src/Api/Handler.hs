@@ -1,3 +1,17 @@
+{- Copyright (C) 2025 Ilya Zamaratskikh
+
+This program is free software; you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation; either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program; if not, see <http://www.gnu.org/licenses>. -}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
@@ -47,16 +61,16 @@ import           Proxmox.Schema
 import           Service.Environment
 import           Utils
 
-allocateDisplays :: DeploymentInstanceDataId -> Int -> [Int] -> AppT (Maybe [Int])
-allocateDisplays dId amount = helper [] where
+allocateDisplays :: Text -> DeploymentInstanceDataId -> Int -> [Int] -> AppT (Maybe [Int])
+allocateDisplays node dId amount = helper [] where
   helper :: [Int] -> [Int] -> AppT (Maybe [Int])
   helper acc [] | length acc == amount = (pure . pure) acc
                 | otherwise = pure Nothing
   helper acc (n:ns) | length acc == amount = (pure . pure) acc
                     | otherwise = do
-    displayHold <- runDB $ exists [ UsedDisplayNum ==. n ]
+    displayHold <- runDB $ exists [ UsedDisplayNum ==. n, UsedDisplayNodeName ==. node ]
     if displayHold then helper acc ns else do
-      _ <- runDB $ insert (UsedDisplay {usedDisplayUsedBy=dId, usedDisplayNum=n})
+      _ <- runDB $ insert (UsedDisplay {usedDisplayUsedBy=dId, usedDisplayNum=n, usedDisplayNodeName=node})
       helper (n:acc) ns
 
 -- TODO: what if network allocated on its deployment?
@@ -178,7 +192,7 @@ handleTask taskQuery (AllocateNode dID) = do
                           let namesMap = M.mapKeys unpack . M.fromList $ zip sdnNetworksNames sdnNames
                           let networks = map (ExistingNetwork . unpack) deploymentTemplateDataExistingNetworks ++ map (\n -> SDNNetwork {configNetworkZone=sdnZone, configNetworkVLANAware=Nothing, configNetworkSubnets=[], configNetworkName=n}) sdnNames
                           let replacedNetworksVM = map (renameNet namesMap) deploymentTemplateDataVms
-                          displayAllocRes <- allocateDisplays instanceKey (length deploymentTemplateDataVms) [x | x <- [nodeMinDisplay..nodeMaxDisplay], 5900 + x `notElem` nodeExcludedPorts]
+                          displayAllocRes <- allocateDisplays nodeName instanceKey (length deploymentTemplateDataVms) [x | x <- [nodeMinDisplay..nodeMaxDisplay], 5900 + x `notElem` nodeExcludedPorts]
                           case displayAllocRes of
                             Nothing -> do
                               $(logError) $ "Failed to allocate displays!"
@@ -210,7 +224,7 @@ handleTask taskQuery (GroupDeployment tID groupName) = do
     (Right users) -> do
       let usersId = map userID users
       existingDeployments <- runDB $ selectKeysList [
-        DeploymentInstanceDataOnwerId <-. usersId,
+        DeploymentInstanceDataOwnerId <-. usersId,
         DeploymentInstanceDataParent ==. DeploymentTemplateDataKey (fromIntegral tID),
         DeploymentInstanceDataState ==. Created,
         DeploymentInstanceDataDeployConfig !=. Nothing
@@ -218,6 +232,21 @@ handleTask taskQuery (GroupDeployment tID groupName) = do
       mapM_ (\(DeploymentInstanceDataKey t) -> (liftIO . atomically) $ writeTQueue taskQuery (DeployInstance t)) existingDeployments
       newDeployments <- createMissingDeployments (DeploymentTemplateDataKey $ fromIntegral tID) tID users
       mapM_ (\t -> (liftIO . atomically) $ writeTQueue taskQuery (AllocateNode t)) newDeployments
+handleTask taskQuery (GroupDestroy tID groupName) = do
+  $(logDebug) $ "Creating group destroy for " <> groupName <> "(" <> (pack . show) tID <> ")"
+  authEnv <- asks $ getEnvFor AuthService
+  groupMembersResp <- withTokenVariable' $ \t -> runClientApp authEnv $ getAllGroupMembers groupName (BearerWrapper t)
+  case groupMembersResp of
+    (Left e) -> $(logError) $ "Group members request error: " <> (pack . show) e
+    (Right users) -> do
+      let usersId = map userID users
+      existingDeployments <- runDB $ selectKeysList [
+        DeploymentInstanceDataOwnerId <-. usersId,
+        DeploymentInstanceDataParent ==. DeploymentTemplateDataKey (fromIntegral tID),
+        DeploymentInstanceDataState !=. Failed,
+        DeploymentInstanceDataDeployConfig !=. Nothing
+        ] []
+      mapM_ (\(DeploymentInstanceDataKey t) -> (liftIO . atomically) $ writeTQueue taskQuery (DestroyInstance t)) existingDeployments
 handleTask taskQuery (DeployInstance dID) = do
   let instanceKey = (DeploymentInstanceDataKey dID)
   let logInstance = addLogToDeploymentInstance instanceKey
@@ -283,6 +312,73 @@ handleTask taskQuery (DeployInstance dID) = do
                           setStatus Failed
                         (Right _) -> do
                           setStatus Deployed
+handleTask tasksQueue (DestroyInstance dID) = do
+  let instanceKey = (DeploymentInstanceDataKey dID)
+  let logInstance = addLogToDeploymentInstance instanceKey
+  let setStatus = setDeploymentInstanceStatus instanceKey
+
+  $(logInfo) $ "Destroying instance " <> (pack . show) dID
+  instance' <- runDB $ get (DeploymentInstanceDataKey dID)
+  case instance' of
+    Nothing -> $(logError) $ "Deploy instance " <> dID <> " not found"
+    (Just (DeploymentInstanceData { .. })) -> do
+      setStatus Destroying
+      case deploymentInstanceDataDeployConfig of
+        Nothing -> do
+          $(logError) $ "Deployment config is not set!"
+          logInstance "Deployment config is not set!"
+          setStatus Created
+        (Just deployConfig@(DeployConfig { deployParameters = DeployParams {deployUrl=deployUrl, deployNodeName=nodeName} })) -> do
+          cfg <- ask
+          parseRes <- liftIO $ tryParseUrl (unpack deployUrl)
+          case parseRes of
+            (Left e) -> do
+              $(logError) $ "Failed to parse URL: " <> pack e
+              logInstance $ "Failed to parse URL: " <> pack e
+              setStatus Failed
+            (Right url) -> do
+              m <- liftIO $ createProxmoxManager deployConfig
+              let stages = planTransactionStages deployConfig Destroy
+              let state = ProxmoxState url m
+              let planState = TransactionState { transactionTarget=Destroy
+                , transactionProxmoxState=state
+                , transactionLogFunction=instanceLogFunction cfg instanceKey
+                , transactionDeployConfig=deployConfig
+                , transactionDataSetF=(\_ -> pure ())
+                , transactionDataGetF=pure (TransactionData M.empty)
+                , transactionAllocateVMIDF=throwError (UnknownError "Cant allocate VMID")
+                , transactionActions=[]
+                }
+              v <- liftIO $ runProxmoxClient' state $ do
+                a <- P.getBridgeNodeNetworks nodeName
+                (ProxmoxResponse b _) <- P.getSDNZones
+                (ProxmoxResponse c _) <- P.getSDNNetworks
+                d <- P.getNodeStorage nodeName defaultProxmoxStorageFilter
+                e <- P.getActiveNodesVMMap
+                pure (a, b, c, d, e)
+              case v of
+                (Left e) -> do
+                  $(logError) $ "Failed to get PVE data: " <> (pack . show) e
+                  logInstance $ "Failed to get PVE data: " <> (pack . show) e
+                  setStatus Failed
+                (Right (a, b, c, d, e)) -> do
+                  planRes <- liftIO $ planTransactionActions stages a b c d e planState
+                  case planRes of
+                    (Left e) -> do
+                      $(logError) $ "Failed to plan transaction: " <> (pack . show) e
+                      logInstance $ "Failed to plan transaction: " <> (pack . show) e
+                      setStatus Failed
+                    (Right actions) -> do
+                      result <- (liftIO . runExceptT) $ (runStateT (unTransaction executeTransaction) (planState { transactionActions = actions }))
+                      case result of
+                        (Left e) -> do
+                          $(logError) $ "Failed to run transaction: " <> (pack . show) e
+                          logInstance $ "Failed to run transaction: " <> (pack . show) e
+                          setStatus Failed
+                        (Right _) -> do
+                          setStatus Created
+                          _ <- runDB $ delete instanceKey
+                          pure ()
 handleTask _ r = do
   $(logInfo) $ (pack . show) r
   pure ()
@@ -306,7 +402,7 @@ createMissingDeployments tID tIDnum = helper [] where
       let instanceEntity = DeploymentInstanceData { deploymentInstanceDataVmLinks=M.empty
         , deploymentInstanceDataState=Created
         , deploymentInstanceDataParent=tID
-        , deploymentInstanceDataOnwerId=userID
+        , deploymentInstanceDataOwnerId=userID
         , deploymentInstanceDataNetworkNamesMap=M.empty
         , deploymentInstanceDataLogs=[]
         , deploymentInstanceDataDeployConfig=Nothing
