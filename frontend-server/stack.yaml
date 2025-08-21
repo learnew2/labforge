@@ -1,0 +1,19 @@
+snapshot:
+  url: https://raw.githubusercontent.com/commercialhaskell/stackage-snapshots/master/lts/21/15.yaml
+
+packages:
+- .
+
+extra-deps:
+- git: https://github.com/learnew2/keycloak-api.git
+  commit: 5cf7d4b6c26b4cf0901d66d7c6e37eb30a0f489d
+- git: https://github.com/learnew2/api-common.git
+  commit: 861b7f1655fc1c2d33825d34ca0a3a26a452f096
+- git: https://github.com/learnew2/proxmox-api.git
+  commit: 1790cd081d15cd7171e476be67d1f564061c4e1f
+- git: https://github.com/learnew2/proxmox-fs-agent.git
+  commit: 6f62d1b7f847c0d9d36516d3bb18dd4991693cd9
+  subdirs:
+  - proxmox-fs-agent-api
+- git: https://github.com/learnew2/proxmox-deploy-toolkit.git
+  commit: c23cde1e75635bdf4e29fcd0c499bb8be553e2ce
