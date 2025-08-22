@@ -70,6 +70,21 @@ authServer =
   :<|> getAllGroups
   :<|> getPagedMembers
   :<|> getAllMembers
+  :<|> getPagedUserGroups
+  :<|> getFullUserGroups
+
+getPagedUserGroups :: Text -> BearerWrapper -> Maybe Int -> AppT [FoundGroup]
+getPagedUserGroups userId (BearerWrapper token) pageN = do
+  let page = max 0 $ fromMaybe 1 pageN
+  _ <- requireRealmRoles token ["user-read"]
+  Config { .. } <- ask
+  withTokenVariable'' $ \t -> runClientApp keycloakEnv $ getUserGroups keycloakRealm userId page (BearerWrapper t)
+
+getFullUserGroups :: Text -> BearerWrapper -> AppT [FoundGroup]
+getFullUserGroups userId (BearerWrapper token) = do
+  _ <- requireRealmRoles token ["user-read"]
+  Config { .. } <- ask
+  withTokenVariable'' $ \t -> runClientApp keycloakEnv  $ getAllUserGroups keycloakRealm userId (BearerWrapper t)
 
 getPagedGroups :: BearerWrapper -> Maybe Int -> AppT [FoundGroup]
 getPagedGroups (BearerWrapper token) pageN = do
