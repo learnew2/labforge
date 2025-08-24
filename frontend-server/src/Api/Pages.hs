@@ -323,21 +323,32 @@ indexPage t pageN = let
       let ~(Just userToken) = t
       instanceResp@(PagedResponse {responseTotal=instanceTotal, responseObjects=instances}) <- globalDecoder' $ defaultRetryClientC deploymentEnv $ C.getMyTemplateInstances (Just page) userToken
       let hasNext = hasNextPages page instanceResp
+      let totallyEmpty = page == 1 && instanceTotal == 0
       (\v -> baseTemplate token Nothing (Just "Index") v Nothing) [shamlet|
 <div .container>
-  $if instanceTotal == 0
+  $if totallyEmpty
     <h1 .title.is-3> Доступных лаб нет!
   $else
     <h1 .title.is-3> Доступные стенды
+    <div .columns.is-multiline>
     $forall (DeploymentInstanceBrief { .. }) <- instances
-      <div .columns.is-multiline>
-        <div .column>
-          <div .card>
-            <header .card-header>
-              <p .card-header-title>
-                #{ briefDeploymentTitle }
-            <footer .card-footer>
-              <a .card-footer-item href=/instance/#{briefDeploymentId}> Открыть
+      <div .column>
+        <div .card>
+          <header .card-header>
+            <p .card-header-title>
+              #{ briefDeploymentTitle }
+          <footer .card-footer>
+            <a .card-footer-item href=/instance/#{briefDeploymentId}> Открыть
+    <nav .pagination.is-centered>
+      <ul .pagination-list>
+        $if page /= 1
+          <li>
+            <a .pagination-link href=/?page=#{preEscapedToHtml $ page - 1}> #{page - 1}
+        <li>
+          <a .pagination-link.is-current> #{page}
+        $if hasNext
+          <li>
+            <a .pagination-link href=/?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
 |]
 
 instancePage :: Text -> Maybe BearerWrapper -> Maybe Text -> AppT Html
