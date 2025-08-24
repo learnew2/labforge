@@ -133,7 +133,11 @@ loginEndpoint (Just redirectFlag) = do
   tempRedirectTo link
 loginEndpoint Nothing = loginEndpoint (Just "/")
 
-logoutEndpoint = undefined
+logoutEndpoint :: AppT ()
+logoutEndpoint = do
+  Config { .. } <- ask
+  let url = keycloakUrl { baseUrlPath = baseUrlPath keycloakUrl <> "/realms/" <> T.unpack keycloakRealm <> "/protocol/openid-connect/logout" }
+  tempRedirectTo (showBaseUrl url)
 
 loginFailEndpoint :: AppT ()
 loginFailEndpoint = tempRedirectTo "/api/auth/login"
