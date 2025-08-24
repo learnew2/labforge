@@ -20,6 +20,7 @@
 
   const updateDesktop = (e: CustomEvent<{ name: string }>) => {
     desktopName = e.detail.name;
+    document.title = e.detail.name;
   }
 
   const updateConnect = (state: boolean) => {
