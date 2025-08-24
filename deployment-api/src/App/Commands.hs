@@ -26,6 +26,7 @@ import           Control.Monad               (when)
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Data.ByteString.Char8       (ByteString)
+import           Data.Maybe
 import           Data.Pool                   (Pool)
 import           Data.Text                   (pack)
 import           Database
@@ -35,6 +36,7 @@ import           Network.AMQP
 import           Network.Wai.Handler.Warp
 import           Network.Wai.Logger
 import           Pool
+import           Redis.Environment
 import           Servant.Client
 import           Service.Config
 import           System.Environment
@@ -68,6 +70,11 @@ runCommand AppOpts { debugOn=debug, appCommand=RunServerOn port runMigrate } = d
   deployZone <- runLoggingT
     (requireEnv "DEPLOY_SDN_ZONE" ($(logError) "DEPLOY_SDN_ZONE is not set" >> (liftIO . exitWith) (ExitFailure 1))) logFunction
 
+  redisConn <- redisConnectionFromEnv
+  when (isNothing redisConn) $ do
+    runLoggingT ($(logError) "Redis connection is not set") logFunction
+    exitWith (ExitFailure 1)
+
   -- TODO: solve this shi
   let poolConfig = Config { serviceCredentials=creds
     , logFunction=logFunction
@@ -79,6 +86,7 @@ runCommand AppOpts { debugOn=debug, appCommand=RunServerOn port runMigrate } = d
     , authEnv = mkClientEnv authManager authUrl
     , tasksPool = error "Pool is not created"
     , deploySDNZone = pack deployZone
+    , redisConnection = fromJust redisConn
     }
 
   tasksPool <- Pool.createPool handleTask (\m -> appTIO m poolConfig >> pure ()) 1
@@ -93,6 +101,7 @@ runCommand AppOpts { debugOn=debug, appCommand=RunServerOn port runMigrate } = d
     , authEnv = mkClientEnv authManager authUrl
     , tasksPool = tasksPool
     , deploySDNZone = pack deployZone
+    , redisConnection = fromJust redisConn
     }
   let app' = app config
   _ <- flip runLoggingT logFunction $ $(logInfo) "Starting server!"

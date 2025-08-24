@@ -32,9 +32,10 @@ import           Data.ByteString.Char8       (unpack)
 import           Data.Pool                   (Pool)
 import           Data.Text                   (Text)
 import           Database.Persist.Postgresql
+import           Database.Redis
 import           Models
-import           Network.AMQP
 import           Pool                        (AsyncPool)
+import           Redis.Common
 import           Servant
 import           Servant.Client
 import           Service.Environment
@@ -66,12 +67,16 @@ data Config = Config
   , authEnv            :: !ClientEnv
   , tasksPool          :: AsyncPool QueryRequest AppT
   , deploySDNZone      :: !Text
+  , redisConnection    :: !Connection
   }
 
 instance ServiceEnvironment Config where
   getEnvFor AuthService       = authEnv
   getEnvFor ClusterManager    = clusterEnv
   getEnvFor DeploymentService = error "DeploymentService env is not specified"
+
+instance RedisConnection Config where
+  getRedisConnection = asks redisConnection
 
 instance HasTokenVariable Config Text where
   getTokenVariable = authToken
