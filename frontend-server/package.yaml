@@ -41,6 +41,7 @@ dependencies:
 - servant-static-th == 1.0.0.0
 - aeson-pretty == 0.8.9
 - containers == 0.6.7
+- proxmox-api
 - proxmox-deploy-toolkit
 - keycloak-api
 - api-common

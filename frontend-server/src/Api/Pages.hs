@@ -49,6 +49,8 @@ import           Models.JSONError
 import           Proxmox.Deploy.Models.Config
 import           Proxmox.Deploy.Models.Config.Deploy
 import           Proxmox.Deploy.Models.Config.DeployAgent
+import           Proxmox.Deploy.Models.Config.Template
+import           Proxmox.Models.NetworkInterface
 import           Servant
 import           Servant.Client
 import           Servant.HTML.Blaze
@@ -67,7 +69,7 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "norights" :> Get '[HTML] Html
   :<|> "instance" :> Capture "instanceID" Text :> AuthHeader' :> QueryParam "power" Text :> Get '[HTML] Html
   :<|> "vnc" :> Capture "vmPort" Text :> AuthHeader' :> Get '[HTML] Html
-  :<|> "test" :> Get '[HTML] Html
+  :<|> "deployment" :> "create" :> AuthHeader' :> Get '[HTML] Html
 
 globalDecoder' :: AppT (Either ClientError a) -> AppT a
 globalDecoder' v = do
@@ -85,20 +87,142 @@ globalDecoder (OtherError e) = do
   sendJSONError err500 (JSONError "" "" Null)
 
 pagesServer :: ServerT PagesAPI AppT
-pagesServer = indexPage :<|> notFound :<|> internalError :<|> noRights :<|> instancePage :<|> vncPage :<|> testPage
+pagesServer = indexPage :<|> notFound :<|> internalError :<|> noRights :<|> instancePage :<|> vncPage :<|> deploymentCreatePage
 
-testPage :: AppT Html
-testPage = do
-  baseTemplate InactiveToken Nothing (Just "test") v Nothing where
+deploymentCreatePage :: Maybe BearerWrapper -> AppT Html
+deploymentCreatePage t = do
+  _ <- requireToken' t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  (PagedResponse { responseObjects = templates }) <- globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates Nothing userToken)
+  let names = (LBS.unpack . encode) $ map configTemplateName templates
+  let availableInterfaces = (LBS.unpack . encode) [E1000, E1000E, VIRTIO, VMXNET3]
+  baseTemplate InactiveToken Nothing (Just "Создание развертывания") v (Just $ h names availableInterfaces) where
     indexKey :: [(String, String)]
     indexKey = [(":key", "index")]
-    v = [shamlet|
-<form x-data="{'vms': []}">
-  <p x-text="JSON.stringify(vms)"></p>
-  <template x-for="(obj, index) in vms" *{indexKey}>
-    <input type="text" name="vms[][name]">
 
-  <button @click="vms.push([])"> Add VM
+    netIndexKey :: [(String, String)]
+    netIndexKey = [(":key", "netIndex")]
+
+    netSelectBind :: [(String, String)]
+    netSelectBind = [(":selected", "vms[index]['networks'][netIndex]['type'] == avtype")]
+
+    h names availableInterfaces = [shamlet|
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data("formData", () => ({
+      templates: #{preEscapedToMarkup names},
+      title: "",
+      vms: [],
+      addVM() { this.vms.push({clone_from: this.templates[0], available: true, networks: [], delay: 0, clean_networks: true, running: true, cores: 1, memory: 1024, cpulimit: 1, name: ""}) },
+      deleteVM(i) { this.vms.splice(i, 1) },
+      existingNetworks: [],
+      removeENet(i) { this.existingNetworks.splice(i, 1) },
+      sendRequest() {
+        var availableVMs = this.vms.filter(i => i.available).map(i => i.name);
+        var payload = JSON.stringify({title: this.title, availableVMs: availableVMs, existingNetworks: this.existingNetworks, vms: this.vms});
+        fetch("/api/deployment/deployments", {
+          method: "POST",
+          body: payload,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }).then(r => {
+          if (r.ok) {
+            location.reload();
+          } else {
+            return r.json().then(resp => {throw new Error(resp.error)})
+          }
+        }).catch(err => {
+          alert("Ошибка при создании развертывания: " + err)
+          console.log(err);
+        })
+      }
+    }))
+
+    Alpine.data("netForm", () => ({
+      interfaces: #{preEscapedToMarkup availableInterfaces},
+      netname: "",
+      nettype: #{preEscapedToMarkup availableInterfaces}[0],
+      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
+      removeNetwork(vm, index) { vm.networks.splice(index, 1) }
+    }))
+  })
+|]
+    v = [shamlet|
+<div .container x-data>
+  <form .form.is-fullwidth x-data="formData" @submit.prevent="">
+    <div .control>
+      <label .label> Имя стенда
+      <input .input type=text>
+    <template x-for="(obj, index) in vms" *{indexKey}>
+      <template x-if="vms[index]">
+        <div .box>
+          <label .label> Название VM
+          <div .control>
+            <input .input type="text" x-model="vms[index]['name']">
+          <label .label> Клонировать из
+          <div .control>
+            <div .select>
+              <select x-model="vms[index]['clone_from']">
+                <option value="" disabled> Выберите шаблон
+                <template x-for="template in templates">
+                  <option x-text="template">
+          <label .label> Время ожидания после включения (в секундах)
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['delay']">
+          <label .label> Кол-во ядер
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['cores']">
+          <label .label> Кол-во ОЗУ (в МБ)
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['memory']">
+          <label .label> Лимит нагрузки CPU (в целых ядрах)
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['cpulimit']">
+          <div .control>
+            <label .checkbox>
+              <input .checkbox type=checkbox x-model="vms[index]['available']">
+              Доступна пользователю
+          <div .control>
+            <label .checkbox>
+              <input .checkbox type=checkbox x-model="vms[index]['running']">
+              Включить VM при развертывании
+          <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth x-data="netForm">
+            <input .input type="text" x-model="netname">
+            <div .select>
+              <select x-model="nettype">
+                <template x-for="avtype in interfaces">
+                  <option x-text="avtype">
+            <button .button @click="addNetwork(vms[index])"> Подключить
+          <template x-for="(netObj, netIndex) in vms[index]['networks']" x-data="netForm">
+            <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth>
+              <input .input type="text" x-model="vms[index]['networks'][netIndex]['name']">
+              <div .select>
+                <select x-model.number="vms[index]['networks'][netIndex]['number']">
+                  <option> -
+                  <template x-for="i in 33">
+                    <option x-text="i - 1">
+              <div .select>
+                <select x-model="vms[index]['networks'][netIndex]['type']">
+                  <template x-for="avtype in interfaces">
+                    <option x-text="avtype" *{netSelectBind}>
+              <button .button @click="removeNetwork(vms[index], netObj)"> Удалить
+          <button .button.is-danger @click="deleteVM(index)"> Удалить VM
+    <div .block>
+      <button .button.is-fullwidth @click="addVM()"> Добавить ВМ
+    <div .block x-data="{input: ''}">
+      <h2 .subtitle.is-5> Список существующих сетей
+      <p> Такие сети не создаются, а используют bridge с тем же именем.
+      <div .control>
+        <label .label> Имя сети
+        <input .input type="text" x-model="input">
+      <button .button.is-fullwidth @click="if (input.length > 0 && !existingNetworks.includes(input)) { existingNetworks.push(input); input = '' }"}> Добавить
+      <template x-for="(net, netIndex) in existingNetworks" *{netIndexKey}>
+        <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth>
+          <p .pr-5 x-text="net">
+          <button .button.is-danger @click="removeENet(netIndex)"> Удалить
+    <button .button.is-success.is-fullwidth @click="sendRequest"> Создать стенд
 |]
 
 noRights :: AppT Html
