@@ -40,6 +40,9 @@ type LogFunction = Loc -> LogSource -> LogLevel -> LogStr -> IO ()
 newtype AppT a = AppT { runApp :: ReaderT Config Handler a }
   deriving (Functor, Applicative, Monad, MonadIO, MonadReader Config, MonadError ServerError)
 
+instance MonadLoggerIO AppT where
+  askLoggerIO = asks logFunction
+
 instance MonadLogger AppT where
   monadLoggerLog loc src level msg = do
     f <- asks logFunction

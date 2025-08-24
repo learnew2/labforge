@@ -15,14 +15,41 @@ along with this program; if not, see <http://www.gnu.org/licenses>. -}
 {-# LANGUAGE QuasiQuotes #-}
 module Templates.Base where
 
+import           Api.Keycloak.Models.Introspect
+import           Config
 import           Data.Maybe
 import           Data.Text
 import           Text.Blaze.Html
 import           Text.Hamlet
 import           Text.Shakespeare
 
-baseTemplate :: Maybe Html -> Maybe String -> Html -> Maybe Html -> Html
-baseTemplate head' title' body afterBody = [shamlet|
+headlessTemplate :: Maybe String -> Html -> Html
+headlessTemplate title' body = [shamlet|
+$doctype 5
+<html>
+  <head>
+    <title> #{fromMaybe "Labforge" title'}
+    <meta charset=utf-8>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="/static/css/bulma.min.css">
+  <body>
+    <nav .navbar role="navigation" aria-label="Main navigation">
+      <div .navbar-brand>
+        <a .navbar-item>
+          Labforge
+
+      <div .navbar-menu #navMenu>
+        <div .navbar-start>
+          <a href=/ .navbar-item>
+            Главная
+    ^{body}
+    <footer .class>
+      <div .content.has-text-centered>
+        Labforge, by <a href="https://github.com/mrtstg"> Ilya Zamaratskikh </a>. <a href="https://github.com/learnew2/labforge> Code </a> is licensed under GPLv3
+|]
+
+baseTemplate :: IntrospectResponse -> Maybe Html -> Maybe String -> Html -> Maybe Html -> AppT Html
+baseTemplate token head' title' body afterBody = pure [shamlet|
 $doctype 5
 <html>
   <head>
@@ -33,10 +60,51 @@ $doctype 5
       $of Nothing
     <meta charset=utf-8>
     <meta name="viewport" content="width=device-width, initial-scale=1">
-  <body>
-    ^{body}
+    <script defer src="/static/js/alpine.js"></script>
+    <link rel="stylesheet" href="/static/css/bulma.min.css">
+  <body .is-flex.is-flex-direction-column style="min-height:100vh">
+    <nav .navbar role="navigation" aria-label="Main navigation">
+      <div .navbar-brand>
+        <a .navbar-item>
+          Labforge
+
+        <a #navBurger role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+          <span aria-hidden="true">
+          <span aria-hidden="true">
+          <span aria-hidden="true">
+          <span aria-hidden="true">
+
+      <div .navbar-menu #navMenu>
+        <div .navbar-start>
+          <a href=/ .navbar-item>
+            Главная
+        <div .navbar-end>
+          $case token
+            $of InactiveToken
+              <a href=/api/auth/login class="button">
+                Войти
+            $of ActiveToken { .. }
+              <div .navbar-item.has-dropdown.is-hoverable>
+                <div .navbar-link>
+                  #{ tokenUsername }
+                <div .navbar-dropdown>
+                  <a .navbar-item href=/api/auth/logout>
+                    Выйти
+    <div .is-fullheight.is-flex-grow-1>
+      ^{body}
+    <footer .class.mt-auto.p-3>
+      <div .content.has-text-centered>
+        <b>
+          Labforge,
+        by
+        <a href="https://github.com/mrtstg">
+          Ilya Zamaratskikh.
+        <a href="https://github.com/learnew2/labforge">
+          Code
+        is licensed under GPLv3
   $case afterBody
     $of (Just afterHtml)
       ^{afterHtml}
     $of Nothing
+  <script src="/static/js/navbar.js">
 |]

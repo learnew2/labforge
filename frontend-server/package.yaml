@@ -39,6 +39,9 @@ dependencies:
 - blaze-html == 0.9.1.2
 - shakespeare == 2.1.0.1
 - servant-static-th == 1.0.0.0
+- aeson-pretty == 0.8.9
+- containers == 0.6.7
+- proxmox-deploy-toolkit
 - keycloak-api
 - api-common
 
