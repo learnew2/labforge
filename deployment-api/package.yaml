@@ -39,6 +39,8 @@ dependencies:
 - amqp == 0.22.1
 - containers == 0.6.7
 - stm == 2.5.1.0
+- hedis == 0.15.2
+- redis-utils
 - keycloak-api
 - api-common
 - proxmox-api

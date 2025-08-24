@@ -16,15 +16,15 @@ packages:
     commit: 76940e6c0af2f4ff35b72aacc62ba6b70f739f67
     git: https://github.com/learnew2/keycloak-api.git
 - completed:
-    commit: 11ec26fdfde89ed7fab256f5a3b339eb5358a25f
+    commit: cf546b01ac6c12ec453828c42b557533247f61ca
     git: https://github.com/learnew2/api-common.git
     name: api-common
     pantry-tree:
-      sha256: e8d5e8070a99b6df9f34ec35765f0487b2157ae2b52d4c1bdad080b93a783137
+      sha256: b8395a25ca0a5aa27115202fabcf3da245f9ee4d0cddb2e97861d41a547829a8
       size: 2295
-    version: 0.1.6.0
+    version: 0.1.6.3
   original:
-    commit: 11ec26fdfde89ed7fab256f5a3b339eb5358a25f
+    commit: cf546b01ac6c12ec453828c42b557533247f61ca
     git: https://github.com/learnew2/api-common.git
 - completed:
     commit: 1790cd081d15cd7171e476be67d1f564061c4e1f
@@ -61,6 +61,17 @@ packages:
   original:
     commit: c23cde1e75635bdf4e29fcd0c499bb8be553e2ce
     git: https://github.com/learnew2/proxmox-deploy-toolkit.git
+- completed:
+    commit: 3a9b7f55bed282b02da41bf849c5334548cbcaf5
+    git: https://github.com/learnew2/redis-utils.git
+    name: redis-utils
+    pantry-tree:
+      sha256: a87a3790c934586a1f43200b889462956288805bd3bcafa562390f6fabfb47d4
+      size: 537
+    version: 0.1.0.0
+  original:
+    commit: 3a9b7f55bed282b02da41bf849c5334548cbcaf5
+    git: https://github.com/learnew2/redis-utils.git
 snapshots:
 - completed:
     sha256: 350737ef1c4c748f4c7ff56b6e74f2f6d15039a2f148662a8ec1aded016b80d0

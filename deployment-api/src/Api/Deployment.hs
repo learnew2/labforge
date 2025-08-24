@@ -19,7 +19,6 @@ along with this program; if not:<|> see <http://www.gnu.org/licenses>. -}
 {-# LANGUAGE TypeOperators     #-}
 module Api.Deployment
   ( deploymentServer
-  , splitVmPort
   , deploymentInstanceKey
   ) where
 
@@ -27,12 +26,14 @@ import           Api
 import           Api.Keycloak.Models
 import           Api.Keycloak.Models.Introspect
 import           Api.Keycloak.Utils
+import           Auth
 import           Auth.Client
 import           Auth.Token
 import           Config
 import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Data.Aeson
+import           Data.Functor                             ((<&>))
 import qualified Data.Map                                 as M
 import           Data.Maybe
 import           Data.Text                                (Text)
@@ -45,14 +46,24 @@ import           Deployment.Schema
 import           Models
 import           Models.JSONError
 import           Pool
+import qualified Proxmox.Client                           as P
 import           Proxmox.Deploy.Models.Config
 import           Proxmox.Deploy.Models.Config.Deploy
 import           Proxmox.Deploy.Models.Config.DeployAgent
 import           Proxmox.Deploy.Models.Config.Network
 import           Proxmox.Deploy.Models.Config.Template
 import           Proxmox.Deploy.Models.Config.VM
+import           Proxmox.Deploy.Ssl
+import           Proxmox.Models
+import           Proxmox.Models.VM
+import           Proxmox.Models.VMConfig
+import           Proxmox.Retry                            (defaultRetryClient')
+import           Proxmox.Schema
+import           Redis.Common
 import           Servant
+import           Servant.Client
 import           Text.Read                                (read, readMaybe)
+import           Utils
 
 templateAdminRole = "image-admin"
 templateReadRole = "image-view"
@@ -279,26 +290,114 @@ getDeploymentInstance instanceId (BearerWrapper token) = do
     (Just (DeploymentInstanceData { .. })) -> do
       ~(Just (DeploymentTemplateData { .. })) <- runDB $ get deploymentInstanceDataParent
       if Just deploymentTemplateDataOwnerId /= tokenUUID && Just deploymentInstanceDataOwnerId /= tokenUUID && not isAdmin then sendJSONError err403 (JSONError "notOwner" "You do not own this instance!" Null) else do
-        pure $ DeploymentInstance
-          { instanceVMLinks=M.mapKeys T.pack $ M.map T.pack (if isAdmin then deploymentInstanceDataVmLinks else M.filterWithKey (\k _ -> T.pack k `elem` deploymentTemplateDataAvailableVMs) deploymentInstanceDataVmLinks)
+        let base = DeploymentInstance { instanceVMLinks=M.mapKeys T.pack $ M.map T.pack (if isAdmin then deploymentInstanceDataVmLinks else M.filterWithKey (\k _ -> T.pack k `elem` deploymentTemplateDataAvailableVMs) deploymentInstanceDataVmLinks)
           , instanceUser=deploymentInstanceDataOwnerId
           , instanceTitle=deploymentTemplateDataTitle
           , instanceState=deploymentInstanceDataState
           , instanceOf=(fromIntegral . fromSqlKey) deploymentInstanceDataParent
           , instanceLogs=if not isAdmin then [] else deploymentInstanceDataLogs
           , instanceDeployConfig=if not isAdmin then Nothing else deploymentInstanceDataDeployConfig
+          , instanceVMPower = M.empty
           }
+        case deploymentInstanceDataDeployConfig of
+          Nothing -> pure base
+          (Just d@(DeployConfig { deployVMs = vms, deployParameters = DeployParams { deployNodeName = nodeName, deployUrl = nodeUrl } })) -> do
+            url <- liftIO $ parseBaseUrl (T.unpack nodeUrl)
+            mgr <- liftIO $ createProxmoxManager d
+            let state = ProxmoxState url mgr
+            vmMap' <- defaultRetryClient' state $ P.getNodeVMsMap nodeName
+            case vmMap' of
+              (Left _) -> pure base
+              (Right vmMap) -> do
+                let definedVMs = M.fromList $ map (\(p, n) -> (T.pack n, (== VMRunning) . vmStatus $ fromJust p)) $ filter (\(p, _) -> isJust p) $ map (\v-> (M.lookup (fromJust $ configVMID v) vmMap, configVMName v)) $ filter (isJust . configVMID) vms
+                pure $ base { instanceVMPower = definedVMs }
 
-getVMPortPower = undefined
-switchVMPortPower = undefined
-getVMPortNetworks = undefined
+getVMPortPower :: Text -> BearerWrapper -> AppT PowerState
+getVMPortPower vmPort (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireToken token
+  case tokenUUID of
+    Nothing -> sendJSONError err401 (JSONError "invalidToken" "" Null)
+    (Just uid) -> do
+      hasAccess <- isUserAccessedVMPort uid vmPort
+      if not hasAccess then sendJSONError err403 (JSONError "noAccess" "" Null) else do
+        ~(Just (vmConfig, instanceData)) <- findVMByPort vmPort
+        let vmid = fromJust $ configVMID vmConfig
+        case deploymentInstanceDataDeployConfig instanceData of
+          Nothing -> sendJSONError err400 (JSONError "" "" Null)
+          (Just deployConfig@(DeployConfig { deployParameters = DeployParams { deployUrl = url', deployNodeName = nodeName } })) -> do
+            mgr <- liftIO $ createProxmoxManager deployConfig
+            url <- liftIO $ parseBaseUrl (T.unpack url')
+            let state = ProxmoxState url mgr
+            power' <- defaultRetryClient' state $ P.getVMPower nodeName vmid
+            case power' of
+              (Left e) -> do
+                $(logError) $ "Proxmox error response: " <> (T.pack . show) e
+                sendJSONError err500 (JSONError "internalError" "" Null)
+              (Right (ProxmoxResponse resp _)) -> do
+                case resp of
+                  Nothing  -> sendJSONError err400 (JSONError "" "" Null)
+                  (Just (ProxmoxVMStatusWrapper VMRunning)) -> pure (PowerState True)
+                  (Just (ProxmoxVMStatusWrapper VMStopped)) -> pure (PowerState False)
+                  (Just (ProxmoxVMStatusWrapper (VMUnknown vmStatus))) -> do
+                    $(logError) $ "Got unknown VM power status: " <> vmStatus
+                    pure (PowerState False)
 
-splitVmPort :: Text -> Maybe (Text, Int)
-splitVmPort portV = do
-  case T.splitOn "-" portV of
-    [] -> Nothing
-    [_] -> Nothing
-    lst -> readMaybe (T.unpack . last $ lst) >>= \x -> Just (T.intercalate "-" (init lst), x)
+switchVMPortPower :: Text -> BearerWrapper -> AppT PowerState
+switchVMPortPower vmPort (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireToken token
+  case tokenUUID of
+    Nothing -> sendJSONError err401 (JSONError "invalidToken" "" Null)
+    (Just uid) -> do
+      hasAccess <- isUserAccessedVMPort uid vmPort
+      if not hasAccess then sendJSONError err403 (JSONError "noAccess" "" Null) else do
+        ~(Just (vmConfig, instanceData)) <- findVMByPort vmPort
+        let vmid = fromJust $ configVMID vmConfig
+        case deploymentInstanceDataDeployConfig instanceData of
+          Nothing -> sendJSONError err400 (JSONError "" "" Null)
+          (Just deployConfig@(DeployConfig { deployParameters = DeployParams { deployUrl = url', deployNodeName = nodeName } })) -> do
+            mgr <- liftIO $ createProxmoxManager deployConfig
+            url <- liftIO $ parseBaseUrl (T.unpack url')
+            let state = ProxmoxState url mgr
+            power' <- defaultRetryClient' state $ P.getVMPower nodeName vmid
+            case power' of
+              (Left e) -> do
+                $(logError) $ "Proxmox error response: " <> (T.pack . show) e
+                sendJSONError err500 (JSONError "internalError" "" Null)
+              (Right (ProxmoxResponse resp _)) -> do
+                case resp of
+                  Nothing  -> sendJSONError err400 (JSONError "" "" Null)
+                  (Just (ProxmoxVMStatusWrapper vmPower)) -> do
+                    lockExists <- getStringValue ("powerlock-" <> T.unpack vmPort) <&> isJust
+                    if lockExists then ($(logInfo) $ "Powerlock on " <> vmPort) >> pure (PowerState $ vmPower == VMRunning) else do
+                      _ <- cacheValue' ("powerlock-" <> T.unpack vmPort) "1" (Just 10)
+                      let f = if vmPower == VMRunning then P.stopVM else P.startVM
+                      _ <- defaultRetryClient' state $ f nodeName vmid
+                      pure (PowerState (vmPower /= VMRunning))
+
+getVMPortNetworks :: Text -> BearerWrapper -> AppT (M.Map String String)
+getVMPortNetworks vmPort (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireToken token
+  case tokenUUID of
+    Nothing -> sendJSONError err401 (JSONError "invalidToken" "" Null)
+    (Just uid) -> do
+      hasAccess <- isUserAccessedVMPort uid vmPort
+      if not hasAccess then sendJSONError err403 (JSONError "noAccess" "" Null) else do
+        ~(Just (vmConfig, instanceData)) <- findVMByPort vmPort
+        let vmid = fromJust $ configVMID vmConfig
+        case deploymentInstanceDataDeployConfig instanceData of
+          Nothing -> sendJSONError err400 (JSONError "" "" Null)
+          (Just deployConfig@(DeployConfig { deployParameters = DeployParams { deployUrl = url', deployNodeName = nodeName } })) -> do
+            mgr <- liftIO $ createProxmoxManager deployConfig
+            url <- liftIO $ parseBaseUrl (T.unpack url')
+            let state = ProxmoxState url mgr
+            vmConfig' <- defaultRetryClient' state $ P.getVMConfig nodeName vmid
+            case vmConfig' of
+              (Right (ProxmoxResponse (Just vmCfg) _)) -> do
+                let devicesMap = vmNetworkDevices vmCfg
+                let reversedNames = (M.fromList . map (\(a, b) -> (b, a)) . M.toList) $ deploymentInstanceDataNetworkNamesMap instanceData
+                let netMap = suggestNetworkBridges (map snd (M.toList devicesMap)) reversedNames
+                pure netMap
+              _ -> sendJSONError err500 (JSONError "internalError" "" Null)
 
 vmPortAccessCheck :: Text -> BearerWrapper -> AppT ()
 vmPortAccessCheck vmPort (BearerWrapper token) = do
@@ -307,34 +406,8 @@ vmPortAccessCheck vmPort (BearerWrapper token) = do
     InactiveToken -> sendJSONError err401 (JSONError "" "" Null)
     (ActiveToken { tokenUUID = Nothing }) -> sendJSONError err401 (JSONError "" "" Null)
     (ActiveToken { tokenUUID = Just uid,.. }) -> do
-      case splitVmPort vmPort of
-        Nothing -> sendJSONError err403 (JSONError "" "" Null)
-        (Just (nodeName, display)) -> do
-          $(logDebug) $ "Checking access from " <> tokenUsername <> " to " <> nodeName <> ", " <> (T.pack . show) display
-          relatedAllocations <- runDB $ selectList [ UsedDisplayNum ==. display, UsedDisplayNodeName ==. nodeName ] []
-          relatedInstances <- runDB $ selectFirst
-            [ DeploymentInstanceDataId <-. map (usedDisplayUsedBy . entityVal) relatedAllocations
-            , DeploymentInstanceDataDeployConfig !=. Nothing ] []
-          case relatedInstances of
-            Nothing -> do
-              $(logWarn) "No related instances found!"
-              sendJSONError err401 (JSONError "" "" Null)
-            Just (Entity _ DeploymentInstanceData { .. }) -> do
-              let usedVMName = filter (\vm -> configVMDisplay vm == Just display) (deployVMs $ fromJust deploymentInstanceDataDeployConfig)
-              case usedVMName of
-                [] -> do
-                  $(logWarn) $ "Couldnt find VM with display " <> (T.pack . show) display
-                  sendJSONError err403 (JSONError "" "" Null)
-                (vm:[]) -> do
-                  ~(Just (DeploymentTemplateData { .. })) <- runDB $ get deploymentInstanceDataParent
-                  if uid == deploymentTemplateDataOwnerId then $(logDebug) "Admin access. Allowed." >> pure () else do
-                    if uid /= deploymentInstanceDataOwnerId then $(logDebug) "Not admin and not owner" >> sendJSONError err403 (JSONError "notOwner" "" Null) else
-                      if T.pack (configVMName vm) `elem` deploymentTemplateDataAvailableVMs then $(logDebug) "Stand owner to available VM. Allowed." >> pure () else
-                        $(logDebug) "Stand owner to not available VM. Not allowed." >> sendJSONError err403 (JSONError "notAvailable" "" Null)
-                _manyVMs -> do
-                  $(logError) $ "There is several VM with same display!"
-                  sendJSONError err500 (JSONError "internalError" "" Null)
-
+      hasAccess <- isUserAccessedVMPort uid vmPort
+      if not hasAccess then sendJSONError err403 (JSONError "" "" Null) else pure ()
 
 deploymentServer :: ServerT DeploymentAPI AppT
 deploymentServer = getPagedTemplates
