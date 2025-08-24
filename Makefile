@@ -1,4 +1,4 @@
-HS_SERVICES=auth-service cluster-manager deployment-api
+HS_SERVICES=auth-service cluster-manager deployment-api frontend-server
 IMAGES_LIST=labforge-auth
 COMPOSE_BIN=docker compose
 ENV_FILE=.env
@@ -25,16 +25,12 @@ install-deps: $(HS_SERVICES)
 	done
 
 build-images:
-	make -C auth-service build-image
+	@for n in $(HS_SERVICES); do \
+		(cd $$n && echo "Building $$n" && make build-image); \
+	done
 
 ./images:
 	mkdir ./images -p
-
-./static/js:
-	mkdir ./static/js -p
-
-./static/css:
-	mkdir ./static/css -p
 
 build-lib-image: deployment/Dockerfile
 	docker build -t labforge-haskell -f deployment/Dockerfile .
