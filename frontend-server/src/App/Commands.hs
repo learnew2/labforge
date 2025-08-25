@@ -26,7 +26,6 @@ import           Control.Monad.Logger
 import           Data.ByteString.Char8       (ByteString)
 import           Data.Pool                   (Pool)
 import           Data.Text                   (pack)
-import           Database
 import           Database.Persist.Postgresql
 import           Database.Persist.Sqlite
 import           Network.Wai.Handler.Warp

@@ -18,7 +18,8 @@ module Templates.Base where
 import           Api.Keycloak.Models.Introspect
 import           Config
 import           Data.Maybe
-import           Data.Text
+import           Data.Text                      (Text)
+import           Roles
 import           Text.Blaze.Html
 import           Text.Hamlet
 import           Text.Shakespeare
@@ -84,6 +85,16 @@ $doctype 5
               <a href=/api/auth/login class="button">
                 Войти
             $of ActiveToken { .. }
+              $if any (flip elem tokenRealmRoles) [deploymentAdmin, deploymentCreator, imageAdmin, imageAdmin]
+                <div .navbar-item.has-dropdown.is-hoverable>
+                  <div .navbar-link> Администрирование
+                  <div .navbar-dropdown>
+                    $if any (flip elem tokenRealmRoles) [deploymentAdmin, deploymentCreator]
+                      <a .navbar-item href=/deployment/create> Создать развертывание
+                      <a .navbar-item href=/deployment/my> Мои развертывания
+                    $if any (flip elem tokenRealmRoles) [imageViewer, imageAdmin]
+                      <a .navbar-item href=/image/my> Все образы
+
               <div .navbar-item.has-dropdown.is-hoverable>
                 <div .navbar-link>
                   #{ tokenUsername }

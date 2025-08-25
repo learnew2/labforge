@@ -12,18 +12,13 @@ GNU General Public License for more details.
 
 You should have received a copy of the GNU General Public License
 along with this program; if not, see <http://www.gnu.org/licenses>. -}
+{-# LANGUAGE OverloadedStrings #-}
 module Utils where
 
 import           Api
-import           Api.Keycloak.Models
-import           Api.Keycloak.Models.Introspect
-import           Auth.Token
-import           Config
-import           Data.Aeson
 import           Data.Maybe
+import           Data.Text                    (Text)
 import           Deployment.Models.Deployment
-import           Models.JSONError
-import           Servant
 
 prettyDeployStatus :: DeploymentStatus -> String
 prettyDeployStatus Deployed   = "Развернут"
@@ -38,11 +33,3 @@ unpackPage = max 1 . fromMaybe 1
 hasNextPages :: Int -> PagedResponse a -> Bool
 hasNextPages page (PagedResponse {responseTotal=totalAmount, responsePageSize=pageSize }) =
   totalAmount - page * pageSize > 0
-
-requireToken' :: Maybe BearerWrapper -> AppT IntrospectResponse
-requireToken' Nothing = sendJSONError err401 (JSONError "" "" Null)
-requireToken' (Just (BearerWrapper token)) = requireToken token
-
-lookupToken' :: Maybe BearerWrapper -> AppT IntrospectResponse
-lookupToken' Nothing                      = pure InactiveToken
-lookupToken' (Just (BearerWrapper token)) = lookupToken token

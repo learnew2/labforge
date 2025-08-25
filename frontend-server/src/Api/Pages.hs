@@ -27,9 +27,12 @@ module Api.Pages
 import           Api
 import           Api.Keycloak.Models
 import           Api.Keycloak.Models.Introspect
+import           Api.Keycloak.Models.User
+import           Api.Keycloak.Utils
 import           Api.Redirect
 import           Api.Retry
 import           Api.Utils
+import qualified Auth.Client                              as Auth
 import           Config
 import           Control.Monad.Logger
 import           Control.Monad.Reader
@@ -37,20 +40,25 @@ import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
 import qualified Data.ByteString.Char8                    as BS
 import qualified Data.ByteString.Lazy.Char8               as LBS
+import           Data.Either
 import           Data.Functor                             ((<&>))
+import           Data.List                                (intercalate)
 import qualified Data.Map                                 as M
+import           Data.Maybe
 import           Data.Text                                (Text)
 import qualified Data.Text                                as T
-import           Database
 import           Database.Persist
 import qualified Deployment.Client                        as C
 import           Deployment.Models.Deployment
 import           Models.JSONError
+import           Network.HTTP.Types                       (urlEncode)
 import           Proxmox.Deploy.Models.Config
 import           Proxmox.Deploy.Models.Config.Deploy
 import           Proxmox.Deploy.Models.Config.DeployAgent
 import           Proxmox.Deploy.Models.Config.Template
+import           Proxmox.Deploy.Models.Config.VM
 import           Proxmox.Models.NetworkInterface
+import           Roles
 import           Servant
 import           Servant.Client
 import           Servant.HTML.Blaze
@@ -70,6 +78,13 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "instance" :> Capture "instanceID" Text :> AuthHeader' :> QueryParam "power" Text :> Get '[HTML] Html
   :<|> "vnc" :> Capture "vmPort" Text :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> "create" :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> "my" :> QueryParam "page" Int :> QueryParam "success" Int :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> Capture "deploymentId" Int :> "delete" :> AuthHeader' :> Get '[HTML] Html
+  :<|> "image" :> Capture "imageId" Int :> "delete" :> AuthHeader' :> Get '[HTML] Html
+  :<|> "image" :> "my" :> QueryParam "page" Int :> QueryParam "failedCreate" Text :> AuthHeader' :> Get '[HTML] Html
+  :<|> "image" :> "create" :> QueryParam "name" Text :> QueryParam "id" Int :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> Capture "deploymentId" Int :> "deploy" :> QueryParam "action" Text :> QueryParam "group" Text :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> Capture "deploymentId" Int :> "instances" :> QueryParam "page" Int :> AuthHeader' :> Get '[HTML] Html
 
 globalDecoder' :: AppT (Either ClientError a) -> AppT a
 globalDecoder' v = do
@@ -87,17 +102,190 @@ globalDecoder (OtherError e) = do
   sendJSONError err500 (JSONError "" "" Null)
 
 pagesServer :: ServerT PagesAPI AppT
-pagesServer = indexPage :<|> notFound :<|> internalError :<|> noRights :<|> instancePage :<|> vncPage :<|> deploymentCreatePage
+pagesServer = indexPage
+  :<|> notFound
+  :<|> internalError
+  :<|> noRights
+  :<|> instancePage
+  :<|> vncPage
+  :<|> deploymentCreatePage
+  :<|> deploymentListPage
+  :<|> deleteDeploymentPage
+  :<|> deleteImagePage
+  :<|> imagesPage
+  :<|> createImagePage
+  :<|> deploymentDeployPage
+  :<|> deploymentInstancesPage
+
+deploymentInstancesPage :: Int -> Maybe Int -> Maybe BearerWrapper -> AppT Html
+deploymentInstancesPage did pageN t = do
+  token <- requireToken' t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  let page = unpackPage pageN
+  r@(PagedResponse { responseObjects=instances, responseTotal=total }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentTemplateInstances did (Just page) userToken)
+  authEnv <- asks $ getEnvFor AuthService
+  userData' <- withTokenVariable' $ \t -> do
+    defaultRetryClientC authEnv $ mapM (flip Auth.getUserBriefInfo (BearerWrapper t) . briefDeploymentUser) instances
+  let userData = either (const M.empty) (M.fromList . map (\e -> (userID e, e))) userData'
+  let hasNext = hasNextPages page r
+  let totallyEmpty = page == 1 && total == 0
+  (\v -> baseTemplate token Nothing (Just "Образы") v Nothing) [shamlet|
+<div .container>
+  $if totallyEmpty
+    <h1 .title.is-3> Нет развернутых стендов!
+  $else
+    <h1 .title.is-3> #{briefDeploymentTitle (head instances)}: стенды
+    <div .columns.is-multiline>
+    $forall (DeploymentInstanceBrief { .. }) <- instances
+      <div .column>
+        <div .card>
+          <header .card-header>
+            <p .card-header-title>
+              $case M.lookup briefDeploymentUser userData
+                $of (Just (BriefUser { .. }))
+                  #{ fromMaybe "" userFirstName } - #{ fromMaybe "" userLastName }
+                $of Nothing
+                  Пользователь #{briefDeploymentUser}
+          <footer .card-footer>
+            <a .card-footer-item href=/instance/#{briefDeploymentId}> Открыть
+    <nav .pagination.is-centered>
+      <ul .pagination-list>
+        $if page /= 1
+          <li>
+            <a .pagination-link href=/deployment/#{did}/instance?page=#{preEscapedToHtml $ page - 1}> #{page - 1}
+        <li>
+          <a .pagination-link.is-current> #{page}
+        $if hasNext
+          <li>
+            <a .pagination-link href=/deployment/#{did}/instance?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
+|]
+
+
+deploymentDeployPage :: Int -> Maybe Text -> Maybe Text -> Maybe BearerWrapper -> AppT Html
+deploymentDeployPage did (Just "deploy") (Just group) t = do
+  _ <- requireToken' t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  r <- defaultRetryClientC env (C.callGroupDeployment did (Just group) userToken) <&> tryDecodeError
+  case r of
+    (DecodedResult _)    -> tempRedirectTo "/deployment/my?success=1"
+    (OtherError _)       -> sendJSONError err500 (JSONError "" "" Null)
+    (DecodedError 400 _) -> tempRedirectTo "/deployment/my?success=0"
+    (UndecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+    (DecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+deploymentDeployPage did (Just "destroy") (Just group) t = do
+  _ <- requireToken' t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  r <- defaultRetryClientC env (C.callGroupDeployment did (Just group) userToken) <&> tryDecodeError
+  case r of
+    (DecodedResult _)    -> tempRedirectTo "/deployment/my?success=2"
+    (OtherError _)       -> sendJSONError err500 (JSONError "" "" Null)
+    (DecodedError 400 _) -> tempRedirectTo "/deployment/my?success=0"
+    (UndecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+    (DecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+deploymentDeployPage _ _ _ _ = tempRedirectTo "/deployment/my"
+
+imagesPage :: Maybe Int -> Maybe Text -> Maybe BearerWrapper -> AppT Html
+imagesPage pageN failedFlag t = do
+  token <- canViewImages t
+  let canManage = canCreateImages token
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  let page = unpackPage pageN
+  i@(PagedResponse { responseTotal=imagesTotal, responseObjects=images }) <- globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates (Just page) userToken)
+  let hasNext = hasNextPages page i
+  let totallyEmpty = page == 1 && imagesTotal == 0
+  (\v -> baseTemplate token Nothing (Just "Образы") v Nothing) [shamlet|
+<div .container>
+  $if canManage
+    $if isJust failedFlag
+      <article .message.is-danger>
+        <div .message-body>
+          Не удалось создать шаблон. Проверьте заполненность полей и уникальность значений
+    <form .box.block action=/image/create method=GET>
+      <div .field>
+        <label .label> Название шаблона
+        <div .control>
+          <input .input type=text name="name">
+      <div .field>
+        <label .label> VMID шаблона (должен быть уникальным)
+        <div .control>
+          <input .input type=text name="id">
+      <button .button.is-success.is-fullwidth> Создать
+  $if totallyEmpty
+    <h1 .title.is-3> Нет доступных образов!
+  $else
+    <h1 .title.is-3> Доступные образы
+    <table .table.is-fullwidth>
+      <thead>
+        <tr>
+          <th> Название образа
+          <th> VMID
+          <th>
+      <tbody>
+        $forall (ConfigTemplate { .. }) <- images
+          <tr>
+            <td> #{configTemplateName}
+            <td> #{configTemplateID}
+            <td>
+              <a href=/image/#{configTemplateID}/delete> Удалить
+    <nav .pagination.is-centered>
+      <ul .pagination-list>
+        $if page /= 1
+          <li>
+            <a .pagination-link href=/image/my?page=#{preEscapedToHtml $ page - 1}> #{page - 1}
+        <li>
+          <a .pagination-link.is-current> #{page}
+        $if hasNext
+          <li>
+            <a .pagination-link href=/image/my?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
+|]
+
+createImagePage :: Maybe Text -> Maybe Int -> Maybe BearerWrapper -> AppT Html
+createImagePage (Just name) (Just id') t = do
+  token <- requireToken' t
+  let canManage = canCreateImages token
+  if not canManage then sendJSONError err403 (JSONError "" "" Null) else do
+    let ~(Just userToken) = t
+    env <- asks $ getEnvFor DeploymentService
+    createRes <- (defaultRetryClientC env (C.createTemplate (ConfigTemplate {configTemplateID=id', configTemplateName=T.unpack name}) userToken)) <&> tryDecodeError
+    case createRes of
+      (DecodedResult _)    -> tempRedirectTo "/image/my"
+      (OtherError _)       -> sendJSONError err500 (JSONError "" "" Null)
+      (DecodedError 400 _) -> tempRedirectTo "/image/my?failedCreate=1"
+      (UndecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+      (DecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+createImagePage _ _ _ = tempRedirectTo "/image/my"
+
+deleteImagePage :: Int -> Maybe BearerWrapper -> AppT Html
+deleteImagePage id' t = do
+  token <- requireToken' t
+  let canManage = canCreateImages token
+  let ~(Just userToken) = t
+  if not canManage then sendJSONError err403 (JSONError "" "" Null) else do
+    env <- asks $ getEnvFor DeploymentService
+    _ <- globalDecoder' $ defaultRetryClientC env (C.deleteTemplate id' userToken)
+    tempRedirectTo "/image/my"
+
+deleteDeploymentPage :: Int -> Maybe BearerWrapper -> AppT Html
+deleteDeploymentPage did t = do
+  _ <- canCreateDeployments t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  _ <- globalDecoder' (defaultRetryClientC env $ C.deleteDeploymentTemplate did userToken)
+  tempRedirectTo "/deployment/my"
 
 deploymentCreatePage :: Maybe BearerWrapper -> AppT Html
 deploymentCreatePage t = do
-  _ <- requireToken' t
+  token <- canCreateDeployments t
   let ~(Just userToken) = t
   env <- asks $ getEnvFor DeploymentService
   (PagedResponse { responseObjects = templates }) <- globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates Nothing userToken)
   let names = (LBS.unpack . encode) $ map configTemplateName templates
   let availableInterfaces = (LBS.unpack . encode) [E1000, E1000E, VIRTIO, VMXNET3]
-  baseTemplate InactiveToken Nothing (Just "Создание развертывания") v (Just $ h names availableInterfaces) where
+  baseTemplate token Nothing (Just "Создание развертывания") v (Just $ h names availableInterfaces) where
     indexKey :: [(String, String)]
     indexKey = [(":key", "index")]
 
@@ -154,7 +342,7 @@ deploymentCreatePage t = do
   <form .form.is-fullwidth x-data="formData" @submit.prevent="">
     <div .control>
       <label .label> Имя стенда
-      <input .input type=text>
+      <input .input type=text x-model="title">
     <template x-for="(obj, index) in vms" *{indexKey}>
       <template x-if="vms[index]">
         <div .box>
@@ -305,6 +493,91 @@ vncPage vmPort t = let
   else do
     baseTemplate token (Just head) (Just "VNC") bodyOff Nothing
 
+deploymentListPage :: Maybe Int -> Maybe Int -> Maybe BearerWrapper -> AppT Html
+deploymentListPage pageN successFlag t = do
+  token <- canCreateDeployments t
+  let ~(Just userToken) = t
+  let page = unpackPage pageN
+  env <- asks $ getEnvFor DeploymentService
+  d@(PagedResponse {responseTotal=totalDeployments, responseObjects=deployments}) <- globalDecoder' $ defaultRetryClientC env (C.getPagedDeploymentTemplates (Just page) userToken)
+  let hasNext = hasNextPages page d
+  let totallyEmpty = page == 1 && totalDeployments == 0
+  (\v -> baseTemplate token Nothing (Just "Развертывания") v Nothing) [shamlet|
+<div .container>
+  $case successFlag
+    $of (Just 0)
+      <div .message.is-danger>
+        <div .message-body>
+          Не удалось начать развертывание! Проверьте корректность названия группы и попробуйте повторить попытку позже.
+    $of (Just 1)
+      <div .message.is-success>
+        <div .message-body>
+          Развертывание создано! В течение скорого времени на указанную группу будут созданы стенды. Вы можете наблюдать за ними во вкладке "Стенды" выбранного шаблона.
+    $of (Just 2)
+      <div .message.is-info>
+        <div .message-body>
+          Развертывание создано! В течение скорого времени стенды указанной группы будут удалены. Вы можете наблюдать за ними во вкладке "Стенды" выбранного шаблона.
+    $of _
+  $if totallyEmpty
+    <h1 .title.is-3> Нет доступных развертываний!
+  $else
+    <h1 .title.is-3> Доступные развертывания
+    <div .columns.is-multiline>
+    $forall (DeploymentTemplate { .. }) <- deployments
+      <div .column>
+        <div .card>
+          <header .card-header>
+            <p .card-header-title>
+              #{templateTitle}
+          <div .card-content>
+            <p> Состав развертывания
+            <table .table.is-fullwidth>
+              <thead>
+                <tr>
+                  <th> Название VM
+                  <th> Память/ядер
+                  <th> Родительский шаблон
+                  <th> Подключенные сети
+                  <th> Доступна пользователю
+              <tbody>
+                $forall vm <- templateVMs
+                  $case vm
+                    $of (TemplatedConfigVM { .. })
+                      <tr>
+                        <td> #{configVMName}
+                        <td> #{fromMaybe "-" (fmap show configVMMemory)} / #{fromMaybe "-" (fmap show configVMCores)}
+                        <td> #{configVMParentTemplate}
+                        <td> #{intercalate ", " (map configVMNetworkName (fromMaybe [] configVMNetworks))}
+                        <td>
+                          $if elem (T.pack configVMName) templateAvaiableVMs
+                            Да
+                          $else
+                            Нет
+            <p> Развертывание
+            <form .form.is-flex.is-flex-direction-row.is-align-items-center action=/deployment/#{templateId}/deploy>
+              <p> Целевая группа Keycloak
+              <input .input type=text name=group>
+              <div .select>
+                <select name=action>
+                  <option disabled> Выберите вариант
+                  <option value=deploy> Создать стенд
+                  <option value=destroy> Удалить стенд
+              <button .button> Выполнить
+          <footer .card-footer>
+            <a .card-footer-item href=/deployment/#{templateId}/instances> Стенды
+            <a .card-footer-item href=/deployment/#{templateId}/delete> Удалить
+    <nav .pagination.is-centered>
+      <ul .pagination-list>
+        $if page /= 1
+          <li>
+            <a .pagination-link href=/deployment/my?page=#{preEscapedToHtml $ page - 1}> #{page - 1}
+        <li>
+          <a .pagination-link.is-current> #{page}
+        $if hasNext
+          <li>
+            <a .pagination-link href=/deployment/my?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
+|]
+
 indexPage :: Maybe BearerWrapper -> Maybe Int -> AppT Html
 indexPage t pageN = let
   anonBody = [shamlet|
@@ -411,6 +684,7 @@ instancePage dID t Nothing = do
           <div>
             <button .button @click="open = ! open" x-text=#{showText}>
         <div x-show="open"> #{ LBS.unpack $ encodePretty deployConfig}
+    $of Nothing
   $if (not . null) instanceLogs
     <div x-data="{ open: false }">
       <div .is-flex.is-flex-direction-row>

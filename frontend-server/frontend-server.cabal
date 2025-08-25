@@ -32,8 +32,8 @@ library
       App.Parser
       App.Types
       Config
-      Database
       Init
+      Roles
       Templates.Base
       Utils
   other-modules:
