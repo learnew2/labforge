@@ -72,6 +72,13 @@ authServer =
   :<|> getAllMembers
   :<|> getPagedUserGroups
   :<|> getFullUserGroups
+  :<|> getUserBriefInfo'
+
+getUserBriefInfo' :: Text -> BearerWrapper -> AppT BriefUser
+getUserBriefInfo' userId (BearerWrapper token) = do
+  _ <- requireRealmRoles token ["user-read"]
+  Config { .. } <- ask
+  withTokenVariable'' $ \t -> runClientApp keycloakEnv $ getUserBriefInfo keycloakRealm userId (BearerWrapper t)
 
 getPagedUserGroups :: Text -> BearerWrapper -> Maybe Int -> AppT [FoundGroup]
 getPagedUserGroups userId (BearerWrapper token) pageN = do
