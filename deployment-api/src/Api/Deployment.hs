@@ -26,6 +26,7 @@ import           Api
 import           Api.Keycloak.Models
 import           Api.Keycloak.Models.Introspect
 import           Api.Keycloak.Utils
+import           Api.Retry
 import           Auth
 import           Auth.Client
 import           Auth.Token
@@ -182,20 +183,24 @@ callGroupDeployment tID groupName (BearerWrapper token) = do
   ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
   case groupName of
     Nothing -> sendJSONError err400 (JSONError "badRequest" "Group name is not set" Null)
+    (Just "") -> sendJSONError err400 (JSONError "badRequest" "Group name is not set" Null)
     (Just group) -> do
       template' <- runDB $ get (DeploymentTemplateDataKey . fromIntegral $ tID)
       case template' of
-        Nothing -> sendJSONError err400 (JSONError "notFound" "Template not found" Null)
+        Nothing -> sendJSONError err404 (JSONError "notFound" "Template not found" Null)
         (Just (DeploymentTemplateData { .. })) -> do
           if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
             sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
           else do
             Config { .. } <- ask
-            _ <- withTokenVariable'' $ \t -> do
-              runClientApp authEnv (getPagedGroupMembers group (BearerWrapper t) Nothing)
-            $(logInfo) $ "Sending group deployment of template " <> (T.pack . show) tID <> " for group " <> group
-            putTask tasksPool (GroupDeployment tID group)
-            pure ()
+            r <- withTokenVariable' $ \t -> do
+              defaultRetryClientC authEnv (getPagedGroupMembers group (BearerWrapper t) Nothing)
+            case r of
+              (Left _) -> sendJSONError err400 (JSONError "badRequest" "Cant get group members" Null)
+              (Right _) -> do
+                $(logInfo) $ "Sending group deployment of template " <> (T.pack . show) tID <> " for group " <> group
+                putTask tasksPool (GroupDeployment tID group)
+                pure ()
 
 -- TODO: unify with function upper
 callGroupDestroy :: Int -> Maybe Text -> BearerWrapper -> AppT ()
@@ -203,20 +208,24 @@ callGroupDestroy tID groupName (BearerWrapper token) = do
   ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
   case groupName of
     Nothing -> sendJSONError err400 (JSONError "badRequest" "Group name is not set" Null)
+    (Just "") -> sendJSONError err400 (JSONError "badRequest" "Group name is not set" Null)
     (Just group) -> do
       template' <- runDB $ get (DeploymentTemplateDataKey . fromIntegral $ tID)
       case template' of
-        Nothing -> sendJSONError err400 (JSONError "notFound" "Template not found" Null)
+        Nothing -> sendJSONError err404 (JSONError "notFound" "Template not found" Null)
         (Just (DeploymentTemplateData { .. })) -> do
           if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
             sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
           else do
             Config { .. } <- ask
-            _ <- withTokenVariable'' $ \t -> do
-              runClientApp authEnv (getPagedGroupMembers group (BearerWrapper t) Nothing)
-            $(logInfo) $ "Sending group destroy of template " <> (T.pack . show) tID <> " for group " <> group
-            putTask tasksPool (GroupDestroy tID group)
-            pure ()
+            r <- withTokenVariable' $ \t -> do
+              defaultRetryClientC authEnv (getPagedGroupMembers group (BearerWrapper t) Nothing)
+            case r of
+              (Left _) -> sendJSONError err400 (JSONError "badRequest" "Cant get group members" Null)
+              (Right _) -> do
+                $(logInfo) $ "Sending group deployment of template " <> (T.pack . show) tID <> " for group " <> group
+                putTask tasksPool (GroupDestroy tID group)
+                pure ()
 
 callGroupPower = undefined
 setDeploymentInstancePower = undefined
