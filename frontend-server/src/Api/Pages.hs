@@ -178,7 +178,7 @@ deploymentDeployPage did (Just "destroy") (Just group) t = do
   _ <- requireToken' t
   let ~(Just userToken) = t
   env <- asks $ getEnvFor DeploymentService
-  r <- defaultRetryClientC env (C.callGroupDeployment did (Just group) userToken) <&> tryDecodeError
+  r <- defaultRetryClientC env (C.callGroupDestroy did (Just group) userToken) <&> tryDecodeError
   case r of
     (DecodedResult _)    -> tempRedirectTo "/deployment/my?success=2"
     (OtherError _)       -> sendJSONError err500 (JSONError "" "" Null)
