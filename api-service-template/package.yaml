@@ -1,16 +1,16 @@
 name:                api-service-template
 version:             0.1.0.0
-github:              "githubuser/api-service-template"
+github:              "learnew2/labforge"
 license:             GPL-3.0-or-later
 author:              "Ilya Zamaratskikh"
-maintainer:          "example@example.com"
+maintainer:          "mrtstg@yandex.ru"
 copyright:           "2025 Ilya Zamaratskikh"
 
 extra-source-files:
 - README.md
 - CHANGELOG.md
 
-description:         Please see the README on GitHub at <https://github.com/githubuser/api-service-template#readme>
+description:         Please see the README on GitHub at <https://github.com/learnew2/labforge#readme>
 
 dependencies:
 - base >= 4.7 && < 5

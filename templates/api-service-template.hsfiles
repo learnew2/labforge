@@ -741,7 +741,7 @@ CMD /usr/src/app/haskell-binary -v migrate && /usr/src/app/haskell-binary run -p
 {-# START_FILE package.yaml #-}
 name:                {{name}}
 version:             0.1.0.0
-github:              "learnew2/{{name}}"
+github:              "learnew2/labforge"
 license:             GPL-3.0-or-later
 author:              "Ilya Zamaratskikh"
 maintainer:          "mrtstg@yandex.ru"
@@ -751,7 +751,7 @@ extra-source-files:
 - README.md
 - CHANGELOG.md
 
-description:         Please see the README on GitHub at <https://github.com/learnew2/{{name}}#readme>
+description:         Please see the README on GitHub at <https://github.com/learnew2/labforge#readme>
 
 dependencies:
 - base >= 4.7 && < 5
@@ -1208,6 +1208,14 @@ packages:
 
 extra-deps:
 - git: https://github.com/learnew2/keycloak-api.git
-  commit: 79c2e38f061d06701d9e412d55d50efa4fbd5229
+  commit: d8fa88a7d92487771cd0555e6e0d42a640f810a9
 - git: https://github.com/learnew2/api-common.git
-  commit: 9998e1fcc3a8a056230f97718190caef1116f3e8
+  commit: 2303ff8e7627a7a4460d9f16f086f49100ea97e3
+- git: https://github.com/learnew2/proxmox-api.git
+  commit: 1790cd081d15cd7171e476be67d1f564061c4e1f
+- git: https://github.com/learnew2/proxmox-fs-agent.git
+  commit: 6f62d1b7f847c0d9d36516d3bb18dd4991693cd9
+  subdirs:
+  - proxmox-fs-agent-api
+- git: https://github.com/learnew2/proxmox-deploy-toolkit.git
+  commit: c23cde1e75635bdf4e29fcd0c499bb8be553e2ce
