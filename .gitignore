@@ -1,4 +1,5 @@
 **/.stack-work
 **/.env
+*.env
 deployment/nginx/ssl
 deployment/nginx/ssl-prod
