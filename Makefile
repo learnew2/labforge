@@ -1,5 +1,5 @@
 HS_SERVICES=auth-service cluster-manager deployment-api frontend-server
-IMAGES_LIST=auth-service cluster-manager deployment-api frontend-server labforge-websockify labforge-nginx-prod
+IMAGES_LIST=auth-service cluster-manager deployment-api frontend-server labforge-websockify labforge-nginx-prod postgres:15-alpine quay.io/keycloak/keycloak:26.2.5 redis:8.2.0-bookworm
 COMPOSE_BIN=docker compose
 ENV_FILE=.env
 BASE_COMPOSE_COMMAND=$(COMPOSE_BIN) --project-name labforge
@@ -57,12 +57,18 @@ deploy-prod: $(PROD_COMPOSE_FILE)
 destroy-prod: $(PROD_COMPOSE_FILE)
 	$(BASE_COMPOSE_COMMAND) -f $(PROD_COMPOSE_FILE) down
 
+define escape_image
+$(shell echo $(1) | sed 's/\//-/g')
+endef
+
 save-images: ./images
-	@for n in $(IMAGES_LIST); do \
-		echo "Saving $$n" && docker save $$n -o ./images/$$n.tar; \
-	done
+	$(foreach image, $(IMAGES_LIST), \
+		echo "Saving $(image)"; docker save $(image) -o ./images/$(call escape_image, $(image)).tar;)
 
 restore-images: ./images
-	@for n in $(IMAGES_LIST); do \
-		echo "Restoring $$n" && docker load -i ./images/$$n.tar; \
-	done
+	$(foreach image, $(IMAGES_LIST), \
+		echo "Restoring $(image)"; docker load -i ./images/$(call escape_image, $(image)).tar;)
+
+bundle:
+	make save-images
+	tar -cvf labforge.tar deployment/ *-sample.env Makefile images/
