@@ -20,6 +20,7 @@ import           App
 import           App.Types
 import           Config
 import           Control.Monad
+import           Control.Monad.Logger
 import           Control.Monad.Logger        (LogLevel (..))
 import           Data.Functor                ((<&>))
 import           Data.Maybe
@@ -30,6 +31,7 @@ import           Network.Wai.Handler.Warp
 import           Network.Wai.Logger
 import           Redis.Environment           (redisConnectionFromEnv)
 import           Servant.Client              (mkClientEnv, parseBaseUrl)
+import           Service.Config
 import           System.Environment
 import           System.Exit
 import           Text.Read
@@ -41,40 +43,35 @@ runCommand AppOpts { debugOn=debug, appCommand=RunServerOn port _ } = do
   authClient <- lookupEnv "AUTH_KEYCLOAK_CLIENT" <&> T.pack . fromMaybe "ln2"
   callbackUrl <- lookupEnv "AUTH_CALLBACK_URL" <&> T.pack . fromMaybe ""
   cookieAge <- lookupEnv "AUTH_COOKIE_AGE" <&> read . fromMaybe "86400"
-  manager <- newManager defaultManagerSettings
-  url' <- lookupEnv "KEYCLOAK_URL"
-  case url' of
-    Nothing -> putStrLn "Failed to get keycloak URL" >> exitWith (ExitFailure 1)
-    (Just url) -> do
-      parsedUrl <- parseBaseUrl url
-      redisConn <- redisConnectionFromEnv
-      when (isNothing redisConn) $ do
-        putStrLn "Failed to init redis connection"
-        exitWith (ExitFailure 1)
-      keycloakID <- lookupEnv "KEYCLOAK_CLIENT_ID" <&> T.pack . fromMaybe ""
-      keycloakSecret <- lookupEnv "KEYCLOAK_CLIENT_SECRET" <&> T.pack . fromMaybe ""
-      keycloakAuthSecret <- lookupEnv "AUTH_KEYCLOAK_SECRET" <&> T.pack . fromMaybe ""
-      when (T.null keycloakID || T.null keycloakSecret || T.null callbackUrl || T.null keycloakAuthSecret) $ do
-        putStrLn "Keycloak client credentials or endpoints is not entered"
-        exitWith (ExitFailure 1)
-      token <- createTokenVar
-      let logFunction = if debug then defaultLogF else filterLogF LevelInfo
-      let keycloakEnv = mkClientEnv manager parsedUrl
-      let config = Config { redisConnection=fromMaybe undefined redisConn
-        , logFunction=logFunction
-        , keycloakRealm=realm
-        , keycloakUrl=parsedUrl
-        , keycloakEnv=keycloakEnv
-        , keycloakClientID = keycloakID
-        , keycloakClientSecret = keycloakSecret
-        , authToken = token
-        , authFunctions = defaultTokenVariableFunctions logFunction keycloakEnv realm keycloakID keycloakSecret
-        , authCallbackURL = callbackUrl
-        , authClient=authClient
-        , authSecret=keycloakAuthSecret
-        , authCookieAge=cookieAge
-        }
-      let app' = app config
-      withStdoutLogger $ \aplogger -> do
-        let settings = setPort port $ setLogger aplogger defaultSettings
-        runSettings settings app'
+  let logFunction = if debug then defaultLogF else filterLogF LevelInfo
+  (keycloakUrl, keycloakManager) <- runLoggingT (requireServiceEnv "KEYCLOAK") logFunction
+  redisConn <- redisConnectionFromEnv
+  when (isNothing redisConn) $ do
+    putStrLn "Failed to init redis connection"
+    exitWith (ExitFailure 1)
+  keycloakID <- lookupEnv "KEYCLOAK_CLIENT_ID" <&> T.pack . fromMaybe ""
+  keycloakSecret <- lookupEnv "KEYCLOAK_CLIENT_SECRET" <&> T.pack . fromMaybe ""
+  keycloakAuthSecret <- lookupEnv "AUTH_KEYCLOAK_SECRET" <&> T.pack . fromMaybe ""
+  when (T.null keycloakID || T.null keycloakSecret || T.null callbackUrl || T.null keycloakAuthSecret) $ do
+    putStrLn "Keycloak client credentials or endpoints is not entered"
+    exitWith (ExitFailure 1)
+  token <- createTokenVar
+  let keycloakEnv = mkClientEnv keycloakManager keycloakUrl
+  let config = Config { redisConnection=fromMaybe undefined redisConn
+    , logFunction=logFunction
+    , keycloakRealm=realm
+    , keycloakUrl=keycloakUrl
+    , keycloakEnv=keycloakEnv
+    , keycloakClientID = keycloakID
+    , keycloakClientSecret = keycloakSecret
+    , authToken = token
+    , authFunctions = defaultTokenVariableFunctions logFunction keycloakEnv realm keycloakID keycloakSecret
+    , authCallbackURL = callbackUrl
+    , authClient=authClient
+    , authSecret=keycloakAuthSecret
+    , authCookieAge=cookieAge
+    }
+  let app' = app config
+  withStdoutLogger $ \aplogger -> do
+    let settings = setPort port $ setLogger aplogger defaultSettings
+    runSettings settings app'
