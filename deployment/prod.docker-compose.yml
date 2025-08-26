@@ -1,0 +1,72 @@
+services:
+  postgresql:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    hostname: postgres
+    container_name: labforge-db
+    env_file:
+      - ../docker.env
+    volumes:
+      - ../pgdata:/data/postgres
+      - ./db-script.sh:/docker-entrypoint-initdb.d/db-script.sh:ro
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.2.5
+    restart: unless-stopped
+    container_name: keycloak
+    hostname: keycloak
+    command: start-dev
+    env_file:
+      - ../docker.env
+  redis:
+    image: redis:8.2.0-bookworm
+    restart: unless-stopped
+    container_name: redis
+    hostname: redis
+  nginx:
+    image: labforge-nginx-prod
+    container_name: labforge-nginx
+    hostname: nginx
+    ports:
+      - 443:443
+      - 80:80
+    restart: unless-stopped
+  websocket:
+    image: labforge-websockify
+    container_name: labforge-websockify
+    hostname: websockify
+    restart: unless-stopped
+    volumes:
+      - ./websockify/tokens.cfg:/tokens.cfg:ro
+      - ./websockify/entrypoint.sh:/entrypoint.sh:ro
+  auth-service:
+    image: auth-service
+    container_name: labforge-auth
+    hostname: auth
+    restart: unless-stopped
+    env_file:
+      - ../docker.env
+      - ../auth.env
+  cluster-manager:
+    image: cluster-manager
+    container_name: labforge-cluster
+    hostname: cluster
+    restart: unless-stopped
+    env_file:
+      - ../docker.env
+      - ../cluster.env
+  deployment-api:
+    image: deployment-api
+    container_name: labforge-deployment
+    hostname: deployment
+    restart: unless-stopped
+    env_file:
+      - ../docker.env
+      - ../deployment.env
+  frontend:
+    image: frontend-server
+    container_name: labforge-frontend
+    hostname: frontend
+    restart: unless-stopped
+    env_file:
+      - ../docker.env
+      - ../frontend.env
