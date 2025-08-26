@@ -4,3 +4,4 @@
 !*-sample.env
 deployment/nginx/ssl
 deployment/nginx/ssl-prod
+*.tar
