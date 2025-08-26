@@ -121,7 +121,7 @@ setDeploymentInstanceStatus :: Key DeploymentInstanceData -> DeploymentStatus ->
 setDeploymentInstanceStatus dID status = do
   runDB $ updateWhere [ DeploymentInstanceDataId ==. dID ] [ DeploymentInstanceDataState =. status ]
 
-handleTask:: TQueue QueryRequest -> QueryRequest -> AppT ()
+handleTask :: TQueue QueryRequest -> QueryRequest -> AppT ()
 handleTask taskQuery (AllocateNode dID) = do
   let instanceKey = (DeploymentInstanceDataKey dID)
   let logInstance = addLogToDeploymentInstance instanceKey
