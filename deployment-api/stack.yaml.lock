@@ -16,15 +16,15 @@ packages:
     commit: 76940e6c0af2f4ff35b72aacc62ba6b70f739f67
     git: https://github.com/learnew2/keycloak-api.git
 - completed:
-    commit: cf546b01ac6c12ec453828c42b557533247f61ca
+    commit: 762eb3c5dc5f1334fbad3deb8bd5b136c9212666
     git: https://github.com/learnew2/api-common.git
     name: api-common
     pantry-tree:
-      sha256: b8395a25ca0a5aa27115202fabcf3da245f9ee4d0cddb2e97861d41a547829a8
+      sha256: b678cf2ed03138d2f200b423d58a9b4955e0c57f0a76e00348b44f0806fe5599
       size: 2295
-    version: 0.1.6.3
+    version: 0.1.6.7
   original:
-    commit: cf546b01ac6c12ec453828c42b557533247f61ca
+    commit: 762eb3c5dc5f1334fbad3deb8bd5b136c9212666
     git: https://github.com/learnew2/api-common.git
 - completed:
     commit: 1790cd081d15cd7171e476be67d1f564061c4e1f

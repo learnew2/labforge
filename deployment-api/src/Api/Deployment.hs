@@ -307,6 +307,7 @@ getDeploymentInstance instanceId (BearerWrapper token) = do
           , instanceLogs=if not isAdmin then [] else deploymentInstanceDataLogs
           , instanceDeployConfig=if not isAdmin then Nothing else deploymentInstanceDataDeployConfig
           , instanceVMPower = M.empty
+          , instanceNetworkMap=if not isAdmin then Nothing else Just deploymentInstanceDataNetworkNamesMap
           }
         case deploymentInstanceDataDeployConfig of
           Nothing -> pure base
