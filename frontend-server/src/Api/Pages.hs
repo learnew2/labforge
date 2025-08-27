@@ -38,6 +38,7 @@ import           Control.Monad.Logger
 import           Control.Monad.Reader
 import           Data.Aeson
 import           Data.Aeson.Encode.Pretty
+import qualified Data.Aeson.KeyMap                        as KM
 import qualified Data.ByteString.Char8                    as BS
 import qualified Data.ByteString.Lazy.Char8               as LBS
 import           Data.Either
@@ -80,6 +81,7 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "deployment" :> "create" :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> "my" :> QueryParam "page" Int :> QueryParam "success" Int :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> Capture "deploymentId" Int :> "delete" :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> Capture "deploymentId" Int :> "edit" :> AuthHeader' :> Get '[HTML] Html
   :<|> "image" :> Capture "imageId" Int :> "delete" :> AuthHeader' :> Get '[HTML] Html
   :<|> "image" :> "my" :> QueryParam "page" Int :> QueryParam "failedCreate" Text :> AuthHeader' :> Get '[HTML] Html
   :<|> "image" :> "create" :> QueryParam "name" Text :> QueryParam "id" Int :> AuthHeader' :> Get '[HTML] Html
@@ -111,6 +113,7 @@ pagesServer = indexPage
   :<|> deploymentCreatePage
   :<|> deploymentListPage
   :<|> deleteDeploymentPage
+  :<|> deploymentEditPage
   :<|> deleteImagePage
   :<|> imagesPage
   :<|> createImagePage
@@ -277,75 +280,29 @@ deleteDeploymentPage did t = do
   _ <- globalDecoder' (defaultRetryClientC env $ C.deleteDeploymentTemplate did userToken)
   tempRedirectTo "/deployment/my"
 
-deploymentCreatePage :: Maybe BearerWrapper -> AppT Html
-deploymentCreatePage t = do
-  token <- canCreateDeployments t
-  let ~(Just userToken) = t
-  env <- asks $ getEnvFor DeploymentService
-  (PagedResponse { responseObjects = templates }) <- globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates Nothing userToken)
-  let names = (LBS.unpack . encode) $ map configTemplateName templates
-  let availableInterfaces = (LBS.unpack . encode) [E1000, E1000E, VIRTIO, VMXNET3]
-  baseTemplate token Nothing (Just "Создание развертывания") v (Just $ h names availableInterfaces) where
-    indexKey :: [(String, String)]
-    indexKey = [(":key", "index")]
+genericDeploymentForm = let
+  indexKey :: [(String, String)]
+  indexKey = [(":key", "index")]
 
-    netIndexKey :: [(String, String)]
-    netIndexKey = [(":key", "netIndex")]
+  netIndexKey :: [(String, String)]
+  netIndexKey = [(":key", "netIndex")]
 
-    netSelectBind :: [(String, String)]
-    netSelectBind = [(":selected", "vms[index]['networks'][netIndex]['type'] == avtype")]
+  netSelectBind :: [(String, String)]
+  netSelectBind = [(":selected", "vms[index]['networks'][netIndex]['type'] == avtype")]
 
-    h names availableInterfaces = [shamlet|
-<script>
-  document.addEventListener('alpine:init', () => {
-    Alpine.data("formData", () => ({
-      templates: #{preEscapedToMarkup names},
-      title: "",
-      vms: [],
-      addVM() { this.vms.push({clone_from: this.templates[0], available: true, networks: [], delay: 0, clean_networks: true, running: true, cores: 1, memory: 1024, cpulimit: 1, name: ""}) },
-      deleteVM(i) { this.vms.splice(i, 1) },
-      existingNetworks: [],
-      removeENet(i) { this.existingNetworks.splice(i, 1) },
-      sendRequest() {
-        var availableVMs = this.vms.filter(i => i.available).map(i => i.name);
-        var payload = JSON.stringify({title: this.title, availableVMs: availableVMs, existingNetworks: this.existingNetworks, vms: this.vms});
-        fetch("/api/deployment/deployments", {
-          method: "POST",
-          body: payload,
-          headers: {
-            'Content-Type': 'application/json'
-          }
-        }).then(r => {
-          if (r.ok) {
-            location.reload();
-          } else {
-            return r.json().then(resp => {throw new Error(resp.error)})
-          }
-        }).catch(err => {
-          alert("Ошибка при создании развертывания: " + err)
-          console.log(err);
-        })
-      }
-    }))
-
-    Alpine.data("netForm", () => ({
-      interfaces: #{preEscapedToMarkup availableInterfaces},
-      netname: "",
-      nettype: #{preEscapedToMarkup availableInterfaces}[0],
-      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
-      removeNetwork(vm, index) { vm.networks.splice(index, 1) }
-    }))
-  })
-|]
-    v = [shamlet|
+  netNumberBind :: [(String, String)]
+  netNumberBind = [(":selected", "vms[index]['networks'][netIndex]['number'] == i - 1")]
+  in [shamlet|
 <div .container x-data>
   <form .form.is-fullwidth x-data="formData" @submit.prevent="">
+    <p x-text="JSON.stringify(vms)">
     <div .control>
       <label .label> Имя стенда
       <input .input type=text x-model="title">
     <template x-for="(obj, index) in vms" *{indexKey}>
       <template x-if="vms[index]">
         <div .box>
+          <p x-text="JSON.stringify(obj)">
           <label .label> Название VM
           <div .control>
             <input .input type="text" x-model="vms[index]['name']">
@@ -388,9 +345,9 @@ deploymentCreatePage t = do
               <input .input type="text" x-model="vms[index]['networks'][netIndex]['name']">
               <div .select>
                 <select x-model.number="vms[index]['networks'][netIndex]['number']">
-                  <option> -
+                  <option value=""> -
                   <template x-for="i in 33">
-                    <option x-text="i - 1">
+                    <option x-text="i - 1" *{netNumberBind}>
               <div .select>
                 <select x-model="vms[index]['networks'][netIndex]['type']">
                   <template x-for="avtype in interfaces">
@@ -411,6 +368,114 @@ deploymentCreatePage t = do
           <p .pr-5 x-text="net">
           <button .button.is-danger @click="removeENet(netIndex)"> Удалить
     <button .button.is-success.is-fullwidth @click="sendRequest"> Создать стенд
+|]
+
+deploymentEditPage :: Int -> Maybe BearerWrapper -> AppT Html
+deploymentEditPage tid t = do
+  token <- canCreateDeployments t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  -- TODO: get all
+  (PagedResponse { responseObjects = templates }) <- globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates Nothing userToken)
+  template <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentTemplate tid userToken)
+  let names = (LBS.unpack . encode) $ map configTemplateName templates
+  let availableInterfaces = (LBS.unpack . encode) [E1000, E1000E, VIRTIO, VMXNET3]
+
+  let vmsEncoded = (LBS.unpack . encode) $ map (\(v, (Object objMap)) -> Object (KM.insert "available" (Bool $ (T.pack . configVMName) v `elem` templateAvaiableVMs template) objMap)) $ map (\x -> (x, toJSON x)) (templateVMs template)
+  baseTemplate token Nothing (Just "Редактирование развертывания") genericDeploymentForm (Just $ h names availableInterfaces template vmsEncoded) where
+    h names availableInterfaces template@(DeploymentTemplate { .. }) vms = [shamlet|
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data("formData", () => ({
+      templates: #{preEscapedToMarkup names},
+      title: "#{preEscapedToMarkup templateTitle}",
+      vms: #{preEscapedToMarkup vms},
+      addVM() { this.vms.push({clone_from: this.templates[0], available: true, networks: [], delay: 0, clean_networks: true, running: true, cores: 1, memory: 1024, cpulimit: 1, name: ""}) },
+      deleteVM(i) { this.vms.splice(i, 1) },
+      existingNetworks: #{preEscapedToMarkup $ (LBS.unpack . encode) templateExistingNetworks},
+      removeENet(i) { this.existingNetworks.splice(i, 1) },
+      sendRequest() {
+        var availableVMs = this.vms.filter(i => i.available).map(i => i.name);
+        var payload = JSON.stringify({title: this.title, availableVMs: availableVMs, existingNetworks: this.existingNetworks, vms: this.vms});
+        fetch("/api/deployment/deployments/#{templateId}", {
+          method: "PATCH",
+          body: payload,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }).then(r => {
+          if (r.ok) {
+            window.location.href = "/deployment/my"
+          } else {
+            return r.json().then(resp => {throw new Error(resp.error)})
+          }
+        }).catch(err => {
+          alert("Ошибка при создании развертывания: " + err)
+          console.log(err);
+        })
+      }
+    }))
+
+    Alpine.data("netForm", () => ({
+      interfaces: #{preEscapedToMarkup availableInterfaces},
+      netname: "",
+      nettype: #{preEscapedToMarkup availableInterfaces}[0],
+      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
+      removeNetwork(vm, index) { vm.networks.splice(index, 1) }
+    }))
+  })
+|]
+
+deploymentCreatePage :: Maybe BearerWrapper -> AppT Html
+deploymentCreatePage t = do
+  token <- canCreateDeployments t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  (PagedResponse { responseObjects = templates }) <- globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates Nothing userToken)
+  let names = (LBS.unpack . encode) $ map configTemplateName templates
+  let availableInterfaces = (LBS.unpack . encode) [E1000, E1000E, VIRTIO, VMXNET3]
+  baseTemplate token Nothing (Just "Создание развертывания") genericDeploymentForm (Just $ h names availableInterfaces) where
+    h names availableInterfaces = [shamlet|
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data("formData", () => ({
+      templates: #{preEscapedToMarkup names},
+      title: "",
+      vms: [],
+      addVM() { this.vms.push({clone_from: this.templates[0], available: true, networks: [], delay: 0, clean_networks: true, running: true, cores: 1, memory: 1024, cpulimit: 1, name: ""}) },
+      deleteVM(i) { this.vms.splice(i, 1) },
+      existingNetworks: [],
+      removeENet(i) { this.existingNetworks.splice(i, 1) },
+      sendRequest() {
+        var availableVMs = this.vms.filter(i => i.available).map(i => i.name);
+        var payload = JSON.stringify({title: this.title, availableVMs: availableVMs, existingNetworks: this.existingNetworks, vms: this.vms});
+        fetch("/api/deployment/deployments", {
+          method: "POST",
+          body: payload,
+          headers: {
+            'Content-Type': 'application/json'
+          }
+        }).then(r => {
+          if (r.ok) {
+            location.reload();
+          } else {
+            return r.json().then(resp => {throw new Error(resp.error)})
+          }
+        }).catch(err => {
+          alert("Ошибка при создании развертывания: " + err)
+          console.log(err);
+        })
+      }
+    }))
+
+    Alpine.data("netForm", () => ({
+      interfaces: #{preEscapedToMarkup availableInterfaces},
+      netname: "",
+      nettype: #{preEscapedToMarkup availableInterfaces}[0],
+      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
+      removeNetwork(vm, index) { vm.networks.splice(index, 1) }
+    }))
+  })
 |]
 
 noRights :: AppT Html
@@ -565,6 +630,7 @@ deploymentListPage pageN successFlag t = do
               <button .button> Выполнить
           <footer .card-footer>
             <a .card-footer-item href=/deployment/#{templateId}/instances> Стенды
+            <a .card-footer-item href=/deployment/#{templateId}/edit> Редактировать
             <a .card-footer-item href=/deployment/#{templateId}/delete> Удалить
     <nav .pagination.is-centered>
       <ul .pagination-list>
