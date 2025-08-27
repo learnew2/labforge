@@ -29,6 +29,7 @@ services:
       KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
       KC_DB_USERNAME: dbuser
       KC_DB_PASSWORD: dbpass
+      KC_HOSTNAME: https://auth.mrtstg.local
   redis:
     image: redis:8.2.0-bookworm
     restart: unless-stopped
@@ -70,3 +71,9 @@ services:
     volumes:
       - ./websockify/tokens.cfg:/tokens.cfg:ro
       - ./websockify/entrypoint.sh:/entrypoint.sh:ro
+  dev-kroki:
+    image: yuzutech/kroki
+    container_name: labforge-kroki
+    restart: unless-stopped
+    ports:
+      - 8050:8000
