@@ -243,7 +243,9 @@ handleTask taskQuery (GroupDestroy tID groupName) = do
       existingDeployments <- runDB $ selectKeysList [
         DeploymentInstanceDataOwnerId <-. usersId,
         DeploymentInstanceDataParent ==. DeploymentTemplateDataKey (fromIntegral tID),
-        DeploymentInstanceDataState !=. Failed,
+        DeploymentInstanceDataState !=. Created,
+        DeploymentInstanceDataState !=. Destroying,
+        DeploymentInstanceDataState !=. Deploying,
         DeploymentInstanceDataDeployConfig !=. Nothing
         ] []
       mapM_ (\(DeploymentInstanceDataKey t) -> (liftIO . atomically) $ writeTQueue taskQuery (DestroyInstance t)) existingDeployments
