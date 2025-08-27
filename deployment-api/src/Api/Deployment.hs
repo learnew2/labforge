@@ -185,7 +185,7 @@ patchDeploymentTemplate tID (DeploymentCreate { .. }) (BearerWrapper token) = do
       if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
         sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
       else do
-        titleTaken <- runDB $ exists [ DeploymentTemplateDataTitle ==. reqTitle ]
+        titleTaken <- runDB $ exists [ DeploymentTemplateDataTitle ==. reqTitle, DeploymentTemplateDataId !=. instanceKey ]
         if titleTaken then sendJSONError err400 (JSONError "titleTaken" "Title is not unique" Null) else do
           runDB $ updateWhere [ DeploymentTemplateDataId ==. instanceKey ]
             [ DeploymentTemplateDataTitle =. reqTitle
