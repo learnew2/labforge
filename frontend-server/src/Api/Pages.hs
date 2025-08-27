@@ -51,6 +51,7 @@ import qualified Data.Text                                as T
 import           Database.Persist
 import qualified Deployment.Client                        as C
 import           Deployment.Models.Deployment
+import           Kroki.Client
 import           Models.JSONError
 import           Network.HTTP.Types                       (urlEncode)
 import           Proxmox.Deploy.Models.Config
@@ -703,6 +704,8 @@ instancePage dID t Nothing = do
   let ~(Just userToken) = t
   d@(DeploymentInstance { instanceDeployConfig = unsafeConfig,.. }) <- globalDecoder' $ defaultRetryClientC deploymentEnv (C.getDeploymentInstance dID userToken)
   let instanceDeployConfig = fmap (\c@(DeployConfig { deployParameters = p, deployAgent = a }) -> c { deployParameters = p { deployToken = Nothing }, deployAgent = fmap (\agent -> agent { configAgentToken = "" }) a }) unsafeConfig
+  krokiEnv <- asks $ getEnvFor KrokiProxy
+  topologyReq <- defaultRetryClientC krokiEnv (renderInstanceDiagram dID userToken)
 
   let showText = "open ? 'Закрыть' : 'Открыть'" :: String
   let getPowerUrl key = "/instance/" <> T.unpack dID <> "?power=" <> key
@@ -710,6 +713,16 @@ instancePage dID t Nothing = do
   (\v -> baseTemplate token Nothing (Just . T.unpack $ instanceTitle) v Nothing) [shamlet|
 <div .container>
   <h1 .title.is-3> #{instanceTitle}
+  $case topologyReq
+    $of (Right svg)
+      <div x-data="{ open: false }">
+        <div .is-flex.is-flex-direction-row>
+          <div .pr-5>
+            <h2 .subtitle.is-4> Автоматическая топология
+          <div>
+            <button .button @click="open = ! open" x-text=#{showText}>
+        <div x-show="open"> #{preEscapedToMarkup svg}
+    $of Left _
   <table .table.is-fullwidth>
     <thead>
       <tr>

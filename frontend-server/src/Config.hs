@@ -57,6 +57,7 @@ data Config = Config
   , clusterEnv         :: !ClientEnv
   , authEnv            :: !ClientEnv
   , deploymentEnv      :: !ClientEnv
+  , krokiEnv           :: !ClientEnv
   }
 
 instance HasTokenVariable Config Text where
@@ -67,6 +68,7 @@ instance ServiceEnvironment Config where
   getEnvFor AuthService       = authEnv
   getEnvFor DeploymentService = deploymentEnv
   getEnvFor ClusterManager    = clusterEnv
+  getEnvFor KrokiProxy        = krokiEnv
 
 runClientApp :: ClientEnv -> ClientM a -> AppT (Either ClientError a)
 runClientApp env m = liftIO $ runClientM m env

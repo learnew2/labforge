@@ -47,6 +47,7 @@ runCommand AppOpts { debugOn=debug, port=port } = do
   (authUrl, authManager) <- runLoggingT (requireServiceEnv "AUTH") logFunction
   (clusterUrl, clusterManager) <- runLoggingT (requireServiceEnv "CLUSTER") logFunction
   (deploymentUrl, deploymentManager) <- runLoggingT (requireServiceEnv "DEPLOYMENT") logFunction
+  (krokiUrl, krokiManager) <- runLoggingT (requireServiceEnv "KROKI") logFunction
 
   let config = Config { serviceCredentials=creds
     , logFunction=logFunction
@@ -55,6 +56,7 @@ runCommand AppOpts { debugOn=debug, port=port } = do
     , clusterEnv = mkClientEnv clusterManager clusterUrl
     , authEnv = mkClientEnv authManager authUrl
     , deploymentEnv = mkClientEnv deploymentManager deploymentUrl
+    , krokiEnv = mkClientEnv krokiManager krokiUrl
     }
   let app' = app config
   _ <- flip runLoggingT logFunction $ $(logInfo) "Starting server!"
