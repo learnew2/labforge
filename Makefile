@@ -1,5 +1,5 @@
-HS_SERVICES=auth-service cluster-manager deployment-api frontend-server
-IMAGES_LIST=auth-service cluster-manager deployment-api frontend-server labforge-websockify labforge-nginx-prod postgres:15-alpine quay.io/keycloak/keycloak:26.2.5 redis:8.2.0-bookworm
+HS_SERVICES=auth-service cluster-manager deployment-api frontend-server kroki-proxy
+IMAGES_LIST=auth-service cluster-manager deployment-api frontend-server kroki-proxy labforge-websockify labforge-nginx-prod postgres:15-alpine quay.io/keycloak/keycloak:26.2.5 redis:8.2.0-bookworm yuzutech/kroki
 COMPOSE_BIN=docker compose
 ENV_FILE=.env
 BASE_COMPOSE_COMMAND=$(COMPOSE_BIN) --project-name labforge
