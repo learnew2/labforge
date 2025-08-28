@@ -17,9 +17,28 @@ module App.Types
   , AppCommand(..)
   ) where
 
+import           Data.Text
+
 data AppOpts = AppOpts
   { debugOn    :: !Bool
   , appCommand :: !AppCommand
   } deriving (Show, Eq)
 
-data AppCommand = RunServerOn Int Bool | MakeMigrations deriving (Show, Eq)
+data AppCommand = RunServerOn Int Bool
+  | MakeMigrations
+  | RemoveNode Text
+  | CheckNode Text
+  | AddNode
+    { nodeName'           :: !Text
+    , nodeApiUrl'         :: !Text
+    , nodeIgnoreSSL'      :: !Bool
+    , nodeApiToken'       :: !Text
+    , nodeStartVMID'      :: !Int
+    , nodeAgentUrl'       :: !Text
+    , nodeAgentToken'     :: !Text
+    , nodeDisplayNetwork' :: !Text
+    , nodeMinDisplay'     :: !Int
+    , nodeMaxDisplay'     :: !Int
+    , nodeDisplayIP'      :: !Text
+    , nodeExcludedPorts'  :: ![Int]
+    } deriving (Show, Eq)
