@@ -78,6 +78,7 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "internalerror" :> Get '[HTML] Html
   :<|> "norights" :> Get '[HTML] Html
   :<|> "instance" :> Capture "instanceID" Text :> AuthHeader' :> QueryParam "power" Text :> Get '[HTML] Html
+  :<|> "instance" :> Capture "instanceID" Text :> "schema" :> AuthHeader' :> Get '[HTML] Html
   :<|> "vnc" :> Capture "vmPort" Text :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> "create" :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> "my" :> QueryParam "page" Int :> QueryParam "success" Int :> AuthHeader' :> Get '[HTML] Html
@@ -110,6 +111,7 @@ pagesServer = indexPage
   :<|> internalError
   :<|> noRights
   :<|> instancePage
+  :<|> instanceSchemaPage
   :<|> vncPage
   :<|> deploymentCreatePage
   :<|> deploymentListPage
@@ -691,6 +693,22 @@ indexPage t pageN = let
             <a .pagination-link href=/?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
 |]
 
+instanceSchemaPage :: Text -> Maybe BearerWrapper -> AppT Html
+instanceSchemaPage dID t = do
+  token <- requireToken' t
+  let ~(Just userToken) = t
+  krokiEnv <- asks $ getEnvFor KrokiProxy
+  topologyReq <- defaultRetryClientC krokiEnv (renderInstanceDiagram dID userToken)
+  (\v -> baseTemplate token Nothing (Just "Топология") v Nothing) [shamlet|
+<div .container>
+  <a .button href="/instance/#{dID}"> Вернуться назад
+  $case topologyReq
+    $of (Right svg)
+      #{preEscapedToMarkup svg}
+    $of Left _
+      <p> Ошибка рендеринга!
+|]
+
 instancePage :: Text -> Maybe BearerWrapper -> Maybe Text -> AppT Html
 instancePage dID t (Just vmPort) = do
   _ <- requireToken' t
@@ -719,9 +737,10 @@ instancePage dID t Nothing = do
         <div .is-flex.is-flex-direction-row>
           <div .pr-5>
             <h2 .subtitle.is-4> Автоматическая топология
-          <div>
+          <div .is-flex.is-flex-direction-row>
             <button .button @click="open = ! open" x-text=#{showText}>
-        <div x-show="open"> #{preEscapedToMarkup svg}
+            <a target=_blank .button href=/instance/#{dID}/schema> В новом окне
+        <div .is-max-tablet.container x-show="open"> #{preEscapedToMarkup svg}
     $of Left _
   <table .table.is-fullwidth>
     <thead>
