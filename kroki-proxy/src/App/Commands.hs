@@ -49,7 +49,7 @@ runCommand AppOpts { debugOn=debug, appCommand=RunServerOn port runMigrate } = d
   creds <- runLoggingT requireKeycloakClient logFunction
   tokenV <- createTokenVar
   (authUrl, authManager) <- runLoggingT (requireServiceEnv "AUTH") logFunction
-  (krokiUrl, krokiManager) <- runLoggingT (requireServiceEnv "KROKI") logFunction
+  (krokiUrl, krokiManager) <- runLoggingT (requireServiceEnv "KROKI_SERVER") logFunction
   (deployUrl, deployManager) <- runLoggingT (requireServiceEnv "DEPLOYMENT") logFunction
   let authEnv = mkClientEnv authManager authUrl
   redisC <- redisConnectionFromEnv
