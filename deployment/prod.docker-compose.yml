@@ -70,3 +70,16 @@ services:
     env_file:
       - ../docker.env
       - ../frontend.env
+  kroki-proxy:
+    image: kroki-proxy
+    container_name: labforge-kroki-proxy
+    hostname: kroki
+    restart: unless-stopped
+    env_file:
+      - ../docker.env
+      - ../kroki.env
+  kroki:
+    image: yuzutech/kroki
+    container_name: labforge-kroki
+    hostname: kroki-server
+    restart: unless-stopped
