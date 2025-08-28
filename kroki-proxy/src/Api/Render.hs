@@ -47,6 +47,7 @@ import           Kroki.Schema
 import           Models.JSONError
 import           Proxmox.Deploy.Models.Config
 import           Proxmox.Deploy.Models.Config.VM
+import           Redis.Common
 import           Servant
 import           Service.Environment
 
@@ -75,22 +76,29 @@ renderDeploymentTemplate did (BearerWrapper token) = let
           let vmNetArr = fromMaybe [] $ configVMNetworks vm
           let netDef = T.intercalate "\n" $ map ((\x -> if vmNetAmount == 1 then name <> "-vm" <> " -- " <> x <> "-net" else x <> "-net" <> " -- " <> name <> "-vm") . T.pack . (\x -> fromMaybe x $ M.lookup x nmap) . configVMNetworkName) vmNetArr
           helper (acc <> vmDef <> netDef) vms
+
+  f :: AppT (Maybe Text)
+  f = do
+    deploymentEnv <- asks $ getEnvFor DeploymentService
+    (DeploymentInstance { .. }) <- withTokenVariable'' $ \(t :: Text) -> runClientApp deploymentEnv $ C.getDeploymentInstance did (BearerWrapper t)
+    case instanceDeployConfig of
+      Nothing -> sendJSONError err400 (JSONError "notDeployed" "instanceIsNotActive" Null)
+      (Just (DeployConfig { deployVMs = vms,.. })) -> do
+        let ~(Just netMap) = instanceNetworkMap
+        let reverseNetMap = (M.fromList . map (\(k, v) -> (v, k)) . M.toList) netMap
+        let allNetworks = map (\x -> T.pack $ fromMaybe x (M.lookup x reverseNetMap)) $ nub $ foldMap (map configVMNetworkName . fromMaybe [] . configVMNetworks) vms
+        let config :: Text = "vars:{d2-config: {layout-engine: elk\ntheme-id: 300}}\ndirection: down\n" <>
+              T.intercalate "\n" (map (\x -> x <> "-net: " <> x) allNetworks) <>
+              vms' reverseNetMap instanceVMLinks vms
+        krokiEnv <- asks krokiEnv
+        resp <- runClientApp krokiEnv $ renderD2 (DiagramRequest config)
+        case resp of
+          (Left e) -> do
+            $(logError) $ "Render error: " <> (T.pack . show) e
+            sendJSONError err400 (JSONError "renderError" "Failed to render graph" Null)
+          (Right r) -> (pure . pure) r
   in do
-  deploymentEnv <- asks $ getEnvFor DeploymentService
-  (DeploymentInstance { .. }) <- withTokenVariable'' $ \(t :: Text) -> runClientApp deploymentEnv $ C.getDeploymentInstance did (BearerWrapper t)
-  case instanceDeployConfig of
-    Nothing -> sendJSONError err400 (JSONError "notDeployed" "instanceIsNotActive" Null)
-    (Just (DeployConfig { deployVMs = vms,.. })) -> do
-      let ~(Just netMap) = instanceNetworkMap
-      let reverseNetMap = (M.fromList . map (\(k, v) -> (v, k)) . M.toList) netMap
-      let allNetworks = map (\x -> T.pack $ fromMaybe x (M.lookup x reverseNetMap)) $ nub $ foldMap (map configVMNetworkName . fromMaybe [] . configVMNetworks) vms
-      let config :: Text = "vars:{d2-config: {layout-engine: elk\ntheme-id: 300}}\ndirection: down\n" <>
-            T.intercalate "\n" (map (\x -> x <> "-net: " <> x) allNetworks) <>
-            vms' reverseNetMap instanceVMLinks vms
-      krokiEnv <- asks krokiEnv
-      resp <- runClientApp krokiEnv $ renderD2 (DiagramRequest config)
-      case resp of
-        (Left e) -> do
-          $(logError) $ "Render error: " <> (T.pack . show) e
-          sendJSONError err400 (JSONError "renderError" "Failed to render graph" Null)
-        (Right r) -> pure r
+  r <- getOrCacheJsonValue (Just 30) (T.unpack did <> "-schema") f
+  case r of
+   (Left _) -> sendJSONError err400 (JSONError "renderError" "Failed to render graph" Null)
+   (Right v) -> pure v

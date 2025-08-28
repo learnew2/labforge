@@ -32,6 +32,7 @@ import           Data.Pool                   (Pool)
 import           Data.Text                   (Text)
 import           Database.Persist.Postgresql
 import           Database.Redis
+import           Redis.Common
 import           Servant
 import           Servant.Client
 import           Service.Environment
@@ -56,6 +57,9 @@ data Config = Config
   , krokiEnv           :: !ClientEnv
   , deploymentEnv      :: !ClientEnv
   }
+
+instance RedisConnection Config where
+  getRedisConnection = redisConnection
 
 instance ServiceEnvironment Config where
   getEnvFor AuthService       = asks authEnv
