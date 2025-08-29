@@ -46,6 +46,9 @@ instance MonadLogger AppT where
     f <- asks logFunction
     liftIO $ f loc src level (toLogStr msg)
 
+instance MonadLoggerIO AppT where
+  askLoggerIO = asks logFunction
+
 data Config = Config
   { configDBPool       :: !(Pool SqlBackend)
   , logFunction        :: !LogFunction

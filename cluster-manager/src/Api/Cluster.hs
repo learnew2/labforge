@@ -16,6 +16,7 @@ along with this program; if not, see <http://www.gnu.org/licenses>. -}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards   #-}
 {-# LANGUAGE TemplateHaskell   #-}
+{-# LANGUAGE TupleSections     #-}
 {-# LANGUAGE TypeOperators     #-}
 module Api.Cluster
   ( clusterServer
@@ -33,7 +34,9 @@ import           Control.Monad.Catch
 import           Control.Monad.IO.Class
 import           Control.Monad.Logger
 import           Data.Aeson
-import           Data.List                           (intercalate)
+import           Data.Either
+import           Data.List                           (find, intercalate, sortOn)
+import qualified Data.Map                            as M
 import           Data.Maybe
 import           Data.Text                           (Text)
 import qualified Data.Text                           as T
@@ -44,8 +47,18 @@ import           Proxmox.Client
 import           Proxmox.Deploy.Models.Config
 import           Proxmox.Deploy.Models.Config.Deploy
 import           Proxmox.Deploy.Ssl
+import           Proxmox.Models
+import           Proxmox.Models.Node                 (ProxmoxNode)
+import qualified Proxmox.Models.Node                 as Node
+import           Proxmox.Retry
 import           Proxmox.Schema
 import           Servant
+import           Servant.Client
+
+measureNode :: ProxmoxNode -> Float
+measureNode (Node.ProxmoxNode { Node.nodeCPU = Just cpu, Node.nodeMemory = Just mem, Node.nodeMaxMemory = Just maxMem }) = do
+  (cpu + (fromIntegral mem / fromIntegral maxMem)) / 2
+measureNode _ = 1
 
 returnFirstAvailable :: [ClusterNode] -> AppT (Maybe ClusterNode)
 returnFirstAvailable [] = pure Nothing
@@ -118,7 +131,30 @@ getDeployNode token = do
   r <- returnFirstAvailable (map (\(Entity _ d) -> deployNodeData d) allNodes)
   case r of
     Nothing -> sendJSONError err500 (JSONError "noAvailableNodes" "No nodes available!" Null)
-    (Just n) -> pure n
+    (Just (ClusterNode { nodeName = nodeName',.. })) -> do
+      mgr <- (liftIO . createProxmoxManager) (DeployConfig {deployVMs=[], deployTemplates=[], deployParameters=DeployParams {deployUrl=nodeApiUrl, deployToken=Just nodeApiToken, deployStartVMID=0, deployIgnoreSSL=nodeIgnoreSSL, deployNodeName=nodeName'}, deployNetworks=[], deployAgent=Nothing})
+      nodeUrl <- liftIO $ parseBaseUrl (T.unpack nodeApiUrl)
+      let state = ProxmoxState nodeUrl mgr
+      resp <- defaultRetryClient' state getActiveNodes
+      case resp of
+        (Left e) -> do
+          $(logError) $ "Failure response during getting deploy node: " <> (T.pack . show) e
+          sendJSONError err500 (JSONError "noAvailableNodes" "Error response from node" Null)
+        (Right nodes) -> do
+          nodeVMAmount <- traverse (\x -> defaultRetryClient' state ((getNodeVMs . T.pack . Node.nodeName) x >>= \(ProxmoxResponse vms _) -> pure (T.pack . Node.nodeName $ x, length vms))) nodes
+          let nodeAmountMap = M.fromList $ map (fromRight ("", 0)) nodeVMAmount
+          let totalNodes = sum $ map (snd . fromRight ("", 0)) nodeVMAmount
+          let nodeMetrics = sortOn snd $ map (\x -> (x,) $ measureNode x + ((fromIntegral .  fromMaybe totalNodes) (M.lookup (T.pack . Node.nodeName $ x) nodeAmountMap)) / fromIntegral totalNodes) nodes
+          $(logDebug) $ (T.pack . show) nodeMetrics
+          let nodesList = map entityVal allNodes
+          let nodesNamesList = map (T.unpack . Database.deployNodeName) nodesList
+          case find ((`elem` nodesNamesList) . Node.nodeName . fst) nodeMetrics of
+            Nothing -> sendJSONError err500 (JSONError "noAvailableNodes" "No nodes available!" Null)
+            (Just (Node.ProxmoxNode { .. }, v)) -> do
+              $(logInfo) $ T.pack $ "Chosen " <> nodeName <> " with value " <> show v
+              case find ((== nodeName) . T.unpack . Database.deployNodeName) nodesList of
+                Nothing -> sendJSONError err500 (JSONError "noAvailableNodes" "No nodes available!" Null)
+                (Just n) -> pure (deployNodeData n)
 
 getWebsockifyConfig :: AppT Text
 getWebsockifyConfig = let
