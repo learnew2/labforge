@@ -1,5 +1,5 @@
 <script lang="ts">
-  import RFB, { NoVncEvent } from "@novnc/novnc/lib/rfb"
+  import RFB from "@novnc/novnc/lib/rfb"
   import { onMount } from "svelte";
 
   let rfb: RFB | null = null
@@ -26,11 +26,37 @@
     rfb.addEventListener("disconnect", (_) => { connectCallback(false); onDisconnectCallback() })
 
     return () => {
-      rfb.disconnect()
+      if (rfb != null) {
+        rfb.disconnect()
+      }
     }
   })
+
+  const sendCAD = () => {
+    if (rfb != null) {
+      rfb.sendCtrlAltDel()
+    }
+  }
+
+  // currently not works
+  const sendBuffer = () => {
+    navigator.clipboard.readText()
+      .then(text => {
+        if (rfb != null) {
+          rfb.clipboardPasteFrom(text)
+        }
+        console.log('Pasted content: ', text);
+      })
+      .catch(err => {
+        console.error('Failed to read clipboard contents: ', err);
+      });
+  }
 </script>
 
 <div>
+  <div class="flex flex-row items-center w-full">
+    <button class="button" on:click={sendCAD}> Ctrl + Alt + Del </button>
+    <!--<button class="button" on:click={sendBuffer}> Ctrl-V </button>-->
+  </div>
   <div class="vnc-screen-container" bind:this={parent}></div>
 </div>
