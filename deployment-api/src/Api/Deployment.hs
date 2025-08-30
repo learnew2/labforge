@@ -43,6 +43,7 @@ import           Database
 import           Database.Persist
 import           Database.Persist.Postgresql
 import           Deployment.Models.Deployment
+import           Deployment.Models.Stats
 import           Deployment.Schema
 import           Models
 import           Models.JSONError
@@ -254,6 +255,41 @@ deploymentInstanceKey :: DeploymentInstanceData -> Text
 deploymentInstanceKey e = deploymentInstanceDataOwnerId e <> "-" <>
   (T.pack . show . (fromIntegral :: (Integral a) => a -> Int) . fromSqlKey . deploymentInstanceDataParent) e
 
+callInstanceDestroy :: Text -> BearerWrapper -> AppT ()
+callInstanceDestroy instanceKey (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
+  d <- runDB $ get (DeploymentInstanceDataKey instanceKey)
+  case d of
+    Nothing                                -> sendJSONError err404 (JSONError "notFound" "Instance not found" Null)
+    (Just (DeploymentInstanceData { .. })) -> do
+      ~(Just (DeploymentTemplateData { .. })) <- runDB $ get deploymentInstanceDataParent
+      if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
+        sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
+      else do
+        Config { .. } <- ask
+        putTask tasksPool (DestroyInstance instanceKey)
+        pure ()
+
+getDeploymentInstancesStats :: Int -> BearerWrapper -> AppT DeploymentStats
+getDeploymentInstancesStats tID (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
+  let instanceKey = DeploymentTemplateDataKey . fromIntegral $ tID
+  template' <- runDB $ get instanceKey
+  case template' of
+    Nothing -> sendJSONError err400 (JSONError "notFound" "Template not found" Null)
+    (Just (DeploymentTemplateData { .. })) -> do
+      if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
+        sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
+      else do
+        (failedAmount, destroyingAmount, deployingAmount, deployedAmount, createdAmount) <- runDB $ do
+          f1 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Failed ]
+          f2 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Destroying ]
+          f3 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Deploying ]
+          f4 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Deployed ]
+          f5 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Created ]
+          pure (f1, f2, f3, f4, f5)
+        pure (DeploymentStats {failedAmount=failedAmount, destroyingAmount=destroyingAmount, deployingAmount=deployingAmount, deployedAmount=deployedAmount, createdAmount=createdAmount})
+
 getDeploymentTemplateInstances :: Int -> Maybe Int -> BearerWrapper -> AppT (PagedResponse [DeploymentInstanceBrief])
 getDeploymentTemplateInstances tID pageN (BearerWrapper token) = do
   ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
@@ -461,3 +497,5 @@ deploymentServer = getPagedTemplates
   :<|> switchVMPortPower
   :<|> getVMPortNetworks
   :<|> vmPortAccessCheck
+  :<|> getDeploymentInstancesStats
+  :<|> callInstanceDestroy
