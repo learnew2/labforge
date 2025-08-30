@@ -51,6 +51,7 @@ import qualified Data.Text                                as T
 import           Database.Persist
 import qualified Deployment.Client                        as C
 import           Deployment.Models.Deployment
+import           Deployment.Models.Stats
 import           Kroki.Client
 import           Models.JSONError
 import           Network.HTTP.Types                       (urlEncode)
@@ -129,6 +130,7 @@ deploymentInstancesPage did pageN t = do
   let ~(Just userToken) = t
   env <- asks $ getEnvFor DeploymentService
   let page = unpackPage pageN
+  (DeploymentStats { .. }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentInstancesStats did userToken)
   r@(PagedResponse { responseObjects=instances, responseTotal=total }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentTemplateInstances did (Just page) userToken)
   authEnv <- asks $ getEnvFor AuthService
   userData' <- withTokenVariable' $ \t -> do
@@ -142,6 +144,22 @@ deploymentInstancesPage did pageN t = do
     <h1 .title.is-3> Нет развернутых стендов!
   $else
     <h1 .title.is-3> #{briefDeploymentTitle (head instances)}: стенды
+    <div .box>
+      $if createdAmount /= 0
+        <p> Создано
+        <progress class="progress" value="#{createdAmount}" max="#{total}">
+      $if deployingAmount /= 0
+        <p> Развертывается
+        <progress class="progress is-info" value="#{deployingAmount}" max="#{total}">
+      $if deployedAmount /= 0
+        <p> Развернуто
+        <progress class="progress is-success" value="#{deployedAmount}" max="#{total}">
+      $if destroyingAmount /= 0
+        <p> Уничтожается
+        <progress class="progress is-warning" value="#{destroyingAmount}" max="#{total}">
+      $if failedAmount /= 0
+        <p> Произошла ошибка
+        <progress class="progress is-danger" value="#{failedAmount}" max="#{total}">
     <div .columns.is-multiline>
     $forall (DeploymentInstanceBrief { .. }) <- instances
       <div .column>
@@ -153,6 +171,8 @@ deploymentInstancesPage did pageN t = do
                   #{ fromMaybe "-" userFirstName } #{ fromMaybe "-" userLastName }
                 $of Nothing
                   Пользователь #{briefDeploymentUser}
+          <div .card-content>
+            #{prettyDeployStatus briefDeploymentStatus}
           <footer .card-footer>
             <a .card-footer-item href=/instance/#{briefDeploymentId}> Открыть
     <nav .pagination.is-centered>
@@ -722,13 +742,15 @@ instancePage dID t Nothing = do
   let ~(Just userToken) = t
   d@(DeploymentInstance { instanceDeployConfig = unsafeConfig,.. }) <- globalDecoder' $ defaultRetryClientC deploymentEnv (C.getDeploymentInstance dID userToken)
   let instanceDeployConfig = fmap (\c@(DeployConfig { deployParameters = p, deployAgent = a }) -> c { deployParameters = p { deployToken = Nothing }, deployAgent = fmap (\agent -> agent { configAgentToken = "" }) a }) unsafeConfig
-  krokiEnv <- asks $ getEnvFor KrokiProxy
-  topologyReq <- defaultRetryClientC krokiEnv (renderInstanceDiagram dID userToken)
 
   let showText = "open ? 'Закрыть' : 'Открыть'" :: String
-  let getPowerUrl key = "/instance/" <> T.unpack dID <> "?power=" <> key
+  case instanceState of
+    Deployed -> do
+      let getPowerUrl key = "/instance/" <> T.unpack dID <> "?power=" <> key
 
-  (\v -> baseTemplate token Nothing (Just . T.unpack $ instanceTitle) v Nothing) [shamlet|
+      krokiEnv <- asks $ getEnvFor KrokiProxy
+      topologyReq <- defaultRetryClientC krokiEnv (renderInstanceDiagram dID userToken)
+      (\v -> baseTemplate token Nothing (Just . T.unpack $ instanceTitle) v Nothing) [shamlet|
 <div .container>
   <h1 .title.is-3> #{instanceTitle}
   $case topologyReq
@@ -771,6 +793,41 @@ instancePage dID t Nothing = do
                     Выключить
                   $of _
                     Включить
+  $case instanceDeployConfig
+    $of (Just deployConfig)
+      <div x-data="{ open: false }">
+        <div .is-flex.is-flex-direction-row>
+          <div .pr-5>
+            <h2 .subtitle.is-4> Отладочная информация
+              <i .pl-1>
+                (видна администратору)
+          <div>
+            <button .button @click="open = ! open" x-text=#{showText}>
+        <div x-show="open"> #{ LBS.unpack $ encodePretty deployConfig}
+    $of Nothing
+  $if (not . null) instanceLogs
+    <div x-data="{ open: false }">
+      <div .is-flex.is-flex-direction-row>
+        <div .pr-5>
+          <h2 .subtitle.is-4> Логи развертывания
+            <i .pl-1>
+              (видны администратору)
+        <div>
+          <button .button @click="open = ! open" x-text=#{showText}>
+      <div x-show="open">
+        <ul>
+          $forall logString <- instanceLogs
+            <li> #{logString}
+|]
+    _anyOther -> do
+      (\v -> baseTemplate token Nothing (Just . T.unpack $ instanceTitle) v Nothing) [shamlet|
+<div .container>
+  <h1 .title.is-3> #{instanceTitle}
+  <article .message.is-info>
+    <div .message-header>
+      Ой!
+    <div .message-body>
+      Скоро тут будет ваш стенд. А пока ничего нет, попробуйте обновить страницу позже или обратиться к преподавателю.
   $case instanceDeployConfig
     $of (Just deployConfig)
       <div x-data="{ open: false }">
