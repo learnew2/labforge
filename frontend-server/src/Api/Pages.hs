@@ -150,7 +150,7 @@ deploymentInstancesPage did pageN t = do
             <p .card-header-title>
               $case M.lookup briefDeploymentUser userData
                 $of (Just (BriefUser { .. }))
-                  #{ fromMaybe "" userFirstName } - #{ fromMaybe "" userLastName }
+                  #{ fromMaybe "-" userFirstName } #{ fromMaybe "-" userLastName }
                 $of Nothing
                   Пользователь #{briefDeploymentUser}
           <footer .card-footer>
