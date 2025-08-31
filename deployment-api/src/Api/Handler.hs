@@ -58,6 +58,7 @@ import           Proxmox.Models.Network
 import           Proxmox.Models.Storage
 import           Proxmox.Retry
 import           Proxmox.Schema
+import           Servant.Client
 import           Service.Environment
 import           Utils
 
@@ -381,6 +382,34 @@ handleTask tasksQueue (DestroyInstance dID) = do
                           setStatus Created
                           _ <- runDB $ delete instanceKey
                           pure ()
+handleTask _ (GroupPower tID groupName powerOn) = do
+  authEnv <- asks $ getEnvFor AuthService
+  groupMembersResp <- withTokenVariable' $ \t -> runClientApp authEnv $ getAllGroupMembers groupName (BearerWrapper t)
+  case groupMembersResp of
+    (Left e) -> $(logError) $ "Group members request error: " <> (pack . show) e
+    (Right users) -> do
+      let usersId = map userID users
+      existingDeployments <- runDB $ selectList [
+        DeploymentInstanceDataOwnerId <-. usersId,
+        DeploymentInstanceDataParent ==. DeploymentTemplateDataKey (fromIntegral tID),
+        DeploymentInstanceDataState !=. Created,
+        DeploymentInstanceDataState !=. Destroying,
+        DeploymentInstanceDataState !=. Deploying,
+        DeploymentInstanceDataDeployConfig !=. Nothing
+        ] []
+      let f = if powerOn then P.startVM else P.stopVM
+      forM_ existingDeployments $ \(Entity dID DeploymentInstanceData { .. }) -> do
+        $(logInfo) $ "Entering deployment " <> (pack . show) dID
+        case deploymentInstanceDataDeployConfig of
+          Nothing -> pure ()
+          (Just deployConfig@(DeployConfig { deployParameters = DeployParams { .. }, .. })) -> do
+            mgr <- liftIO $ createProxmoxManager deployConfig
+            url <- liftIO $ parseBaseUrl (unpack deployUrl)
+            let state = ProxmoxState url mgr
+            forM_ deployVMs $ \vm -> do
+              let vmId = fromMaybe (-1) $ configVMID vm
+              _ <- defaultRetryClient' state (f deployNodeName vmId)
+              $(logInfo) $ "Turned " <> (if powerOn then "on " else "off ") <> (pack . show) vmId
 handleTask _ r = do
   $(logInfo) $ (pack . show) r
   pure ()

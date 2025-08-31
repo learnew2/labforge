@@ -248,7 +248,28 @@ callGroupDestroy tID groupName (BearerWrapper token) = do
                 putTask tasksPool (GroupDestroy tID group)
                 pure ()
 
-callGroupPower = undefined
+callGroupPower :: Int -> Maybe Text -> Bool -> BearerWrapper -> AppT ()
+callGroupPower tID (Just group) powerOn (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
+  let instanceKey = DeploymentTemplateDataKey . fromIntegral $ tID
+  template' <- runDB $ get instanceKey
+  case template' of
+    Nothing -> sendJSONError err400 (JSONError "notFound" "Template not found" Null)
+    (Just (DeploymentTemplateData { .. })) -> do
+      if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
+        sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
+      else do
+        Config { .. } <- ask
+        r <- withTokenVariable' $ \t -> do
+          defaultRetryClientC authEnv (getPagedGroupMembers group (BearerWrapper t) Nothing)
+        case r of
+          (Left _) -> sendJSONError err400 (JSONError "badRequest" "Cant get group members" Null)
+          (Right _) -> do
+            putTask tasksPool (GroupPower tID group powerOn)
+            pure ()
+callGroupPower _ _ _ _ = do
+  sendJSONError err400 (JSONError "badRequest" "Group is not specified!" Null)
+
 setDeploymentInstancePower = undefined
 
 deploymentInstanceKey :: DeploymentInstanceData -> Text
