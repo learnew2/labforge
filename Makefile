@@ -61,6 +61,14 @@ define escape_image
 $(shell echo $(1) | sed 's/\//-/g')
 endef
 
+save-service-images: ./images
+	$(foreach image, $(HS_SERVICES), \
+		echo "Saving $(image)"; docker save $(image) -o ./images/$(call escape_image, $(image)).tar;)
+
+restore-service-images: ./images
+	$(foreach image, $(HS_SERVICES), \
+		echo "Restoring $(image)"; docker load -i ./images/$(call escape_image, $(image)).tar;)
+
 save-images: ./images
 	$(foreach image, $(IMAGES_LIST), \
 		echo "Saving $(image)"; docker save $(image) -o ./images/$(call escape_image, $(image)).tar;)
@@ -70,5 +78,4 @@ restore-images: ./images
 		echo "Restoring $(image)"; docker load -i ./images/$(call escape_image, $(image)).tar;)
 
 bundle:
-	make save-images
 	tar -cvf labforge.tar deployment/ *-sample.env Makefile images/
