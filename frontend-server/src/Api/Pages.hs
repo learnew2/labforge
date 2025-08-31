@@ -80,6 +80,7 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "norights" :> Get '[HTML] Html
   :<|> "instance" :> Capture "instanceID" Text :> AuthHeader' :> QueryParam "power" Text :> Get '[HTML] Html
   :<|> "instance" :> Capture "instanceID" Text :> "schema" :> AuthHeader' :> Get '[HTML] Html
+  :<|> "instance" :> Capture "instanceID" Text :> "delete" :> AuthHeader' :> Get '[HTML] Html
   :<|> "vnc" :> Capture "vmPort" Text :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> "create" :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> "my" :> QueryParam "page" Int :> QueryParam "success" Int :> AuthHeader' :> Get '[HTML] Html
@@ -89,7 +90,7 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "image" :> "my" :> QueryParam "page" Int :> QueryParam "failedCreate" Text :> AuthHeader' :> Get '[HTML] Html
   :<|> "image" :> "create" :> QueryParam "name" Text :> QueryParam "id" Int :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> Capture "deploymentId" Int :> "deploy" :> QueryParam "action" Text :> QueryParam "group" Text :> AuthHeader' :> Get '[HTML] Html
-  :<|> "deployment" :> Capture "deploymentId" Int :> "instances" :> QueryParam "page" Int :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> Capture "deploymentId" Int :> "instances" :> QueryParam "page" Int :> QueryParam "refresh" Int :> AuthHeader' :> Get '[HTML] Html
 
 globalDecoder' :: AppT (Either ClientError a) -> AppT a
 globalDecoder' v = do
@@ -113,6 +114,7 @@ pagesServer = indexPage
   :<|> noRights
   :<|> instancePage
   :<|> instanceSchemaPage
+  :<|> deleteInstancePage
   :<|> vncPage
   :<|> deploymentCreatePage
   :<|> deploymentListPage
@@ -124,12 +126,14 @@ pagesServer = indexPage
   :<|> deploymentDeployPage
   :<|> deploymentInstancesPage
 
-deploymentInstancesPage :: Int -> Maybe Int -> Maybe BearerWrapper -> AppT Html
-deploymentInstancesPage did pageN t = do
+deploymentInstancesPage :: Int -> Maybe Int -> Maybe Int -> Maybe BearerWrapper -> AppT Html
+deploymentInstancesPage did pageN refreshFlag t = do
   token <- requireToken' t
   let ~(Just userToken) = t
   env <- asks $ getEnvFor DeploymentService
   let page = unpackPage pageN
+  let refreshValue = fromMaybe 0 refreshFlag
+  let refresh = refreshValue == 1
   (DeploymentStats { .. }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentInstancesStats did userToken)
   r@(PagedResponse { responseObjects=instances, responseTotal=total }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentTemplateInstances did (Just page) userToken)
   authEnv <- asks $ getEnvFor AuthService
@@ -143,22 +147,30 @@ deploymentInstancesPage did pageN t = do
   $if totallyEmpty
     <h1 .title.is-3> Нет развернутых стендов!
   $else
-    <h1 .title.is-3> #{briefDeploymentTitle (head instances)}: стенды
+    <div .is-flex.is-flex-direction-row.is-align-items-center>
+      <div>
+       <h1 .title.is-3> #{briefDeploymentTitle (head instances)}: стенды
+      <div>
+        <a .button href=/deployment/#{did}/instances?page=#{page}&refresh=#{abs $ refreshValue - 1}>
+          $if not refresh
+            Включить автообновление
+          $else
+            Выключить автообновление
     <div .box>
       $if createdAmount /= 0
-        <p> Создано
+        <p> Создано: #{createdAmount} / #{total}
         <progress class="progress" value="#{createdAmount}" max="#{total}">
       $if deployingAmount /= 0
-        <p> Развертывается
+        <p> Развертывается: #{deployingAmount} / #{total}
         <progress class="progress is-info" value="#{deployingAmount}" max="#{total}">
       $if deployedAmount /= 0
-        <p> Развернуто
+        <p> Развернуто: #{deployedAmount} / #{total}
         <progress class="progress is-success" value="#{deployedAmount}" max="#{total}">
       $if destroyingAmount /= 0
-        <p> Уничтожается
+        <p> Уничтожается: #{destroyingAmount} / #{total}
         <progress class="progress is-warning" value="#{destroyingAmount}" max="#{total}">
       $if failedAmount /= 0
-        <p> Произошла ошибка
+        <p> Произошла ошибка: #{failedAmount} / #{total}
         <progress class="progress is-danger" value="#{failedAmount}" max="#{total}">
     <div .columns.is-multiline>
     $forall (DeploymentInstanceBrief { .. }) <- instances
@@ -175,6 +187,7 @@ deploymentInstancesPage did pageN t = do
             #{prettyDeployStatus briefDeploymentStatus}
           <footer .card-footer>
             <a .card-footer-item href=/instance/#{briefDeploymentId}> Открыть
+            <a .card-footer-item href=/instance/#{briefDeploymentId}/delete> Удалить
     <nav .pagination.is-centered>
       <ul .pagination-list>
         $if page /= 1
@@ -185,8 +198,21 @@ deploymentInstancesPage did pageN t = do
         $if hasNext
           <li>
             <a .pagination-link href=/deployment/#{did}/instance?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
+$if refresh
+  <script>
+    setTimeout(function() {
+      location.reload();
+    }, 5000);
 |]
 
+deleteInstancePage :: Text -> Maybe BearerWrapper -> AppT Html
+deleteInstancePage did t = do
+  _ <- requireToken' t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  (DeploymentInstance { .. }) <- globalDecoder' $ defaultRetryClientC env $ C.getDeploymentInstance did userToken
+  _ <- globalDecoder' $ defaultRetryClientC env (C.callInstanceDestroy did userToken)
+  tempRedirectTo $ "/deployment/" <> show instanceOf <> "/instances"
 
 deploymentDeployPage :: Int -> Maybe Text -> Maybe Text -> Maybe BearerWrapper -> AppT Html
 deploymentDeployPage did (Just "deploy") (Just group) t = do
