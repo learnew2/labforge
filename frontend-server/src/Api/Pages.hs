@@ -237,6 +237,28 @@ deploymentDeployPage did (Just "destroy") (Just group) t = do
     (DecodedError 400 _) -> tempRedirectTo "/deployment/my?success=0"
     (UndecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
     (DecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+deploymentDeployPage did (Just "turnon") (Just group) t = do
+  _ <- requireToken' t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  r <- defaultRetryClientC env (C.callGroupPower did (Just group) True userToken) <&> tryDecodeError
+  case r of
+    (DecodedResult _)    -> tempRedirectTo "/deployment/my?success=3"
+    (OtherError _)       -> sendJSONError err500 (JSONError "" "" Null)
+    (DecodedError 400 _) -> tempRedirectTo "/deployment/my?success=0"
+    (UndecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+    (DecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+deploymentDeployPage did (Just "turnoff") (Just group) t = do
+  _ <- requireToken' t
+  let ~(Just userToken) = t
+  env <- asks $ getEnvFor DeploymentService
+  r <- defaultRetryClientC env (C.callGroupPower did (Just group) False userToken) <&> tryDecodeError
+  case r of
+    (DecodedResult _)    -> tempRedirectTo "/deployment/my?success=4"
+    (OtherError _)       -> sendJSONError err500 (JSONError "" "" Null)
+    (DecodedError 400 _) -> tempRedirectTo "/deployment/my?success=0"
+    (UndecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
+    (DecodedError status _) -> throwError (ServerError {errBody="", errHTTPCode=status, errHeaders=[], errReasonPhrase=""})
 deploymentDeployPage _ _ _ _ = tempRedirectTo "/deployment/my"
 
 imagesPage :: Maybe Int -> Maybe Text -> Maybe BearerWrapper -> AppT Html
@@ -631,6 +653,14 @@ deploymentListPage pageN successFlag t = do
       <div .message.is-info>
         <div .message-body>
           Развертывание создано! В течение скорого времени стенды указанной группы будут удалены. Вы можете наблюдать за ними во вкладке "Стенды" выбранного шаблона.
+    $of (Just 3)
+      <div .message.is-info>
+        <div .message-body>
+          Запрос на включение стендов создан!
+    $of (Just 4)
+      <div .message.is-info>
+        <div .message-body>
+          Запрос на выключение стендов создан!
     $of _
   $if totallyEmpty
     <h1 .title.is-3> Нет доступных развертываний!
@@ -676,6 +706,8 @@ deploymentListPage pageN successFlag t = do
                   <option disabled> Выберите вариант
                   <option value=deploy> Создать стенд
                   <option value=destroy> Удалить стенд
+                  <option value=turnoff> Выключить стенд
+                  <option value=turnon> Включить стенд
               <button .button> Выполнить
           <footer .card-footer>
             <a .card-footer-item href=/deployment/#{templateId}/instances> Стенды
