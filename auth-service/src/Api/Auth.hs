@@ -73,6 +73,7 @@ authServer =
   :<|> getPagedUserGroups
   :<|> getFullUserGroups
   :<|> getUserBriefInfo'
+  :<|> redirectOnPortal
 
 getUserBriefInfo' :: Text -> BearerWrapper -> AppT BriefUser
 getUserBriefInfo' userId (BearerWrapper token) = do
@@ -144,6 +145,12 @@ logoutEndpoint :: AppT ()
 logoutEndpoint = do
   Config { .. } <- ask
   let url = keycloakUrl { baseUrlPath = baseUrlPath keycloakUrl <> "/realms/" <> T.unpack keycloakRealm <> "/protocol/openid-connect/logout" }
+  tempRedirectTo (showBaseUrl url)
+
+redirectOnPortal :: AppT ()
+redirectOnPortal = do
+  Config { .. } <- ask
+  let url = keycloakUrl { baseUrlPath = baseUrlPath keycloakUrl <> "/admin/" <> T.unpack keycloakRealm <> "/console/" }
   tempRedirectTo (showBaseUrl url)
 
 loginFailEndpoint :: AppT ()

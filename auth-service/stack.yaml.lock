@@ -27,15 +27,15 @@ packages:
     commit: 3a9b7f55bed282b02da41bf849c5334548cbcaf5
     git: https://github.com/learnew2/redis-utils.git
 - completed:
-    commit: 2303ff8e7627a7a4460d9f16f086f49100ea97e3
+    commit: 260639d9cebe65b4db7ff2b20515dcf9b5d5443a
     git: https://github.com/learnew2/api-common.git
     name: api-common
     pantry-tree:
-      sha256: a1daa4e6d7320e584d1a7afc09886c7cff15896b75e6ba1b63e2148cb4dfacd5
-      size: 2295
-    version: 0.1.6.5
+      sha256: 0e803b57ec5e87317875150e762e667cba46d9f3ce28053e6723b5bbba7be3dd
+      size: 2483
+    version: 0.1.6.12
   original:
-    commit: 2303ff8e7627a7a4460d9f16f086f49100ea97e3
+    commit: 260639d9cebe65b4db7ff2b20515dcf9b5d5443a
     git: https://github.com/learnew2/api-common.git
 - completed:
     commit: 1790cd081d15cd7171e476be67d1f564061c4e1f
