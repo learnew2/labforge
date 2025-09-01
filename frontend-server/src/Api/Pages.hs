@@ -363,17 +363,18 @@ genericDeploymentForm = let
 
   netNumberBind :: [(String, String)]
   netNumberBind = [(":selected", "vms[index]['networks'][netIndex]['number'] == i - 1")]
+
+  templateBind :: [(String, String)]
+  templateBind = [(":selected", "vms[index]['clone_from'] == template")]
   in [shamlet|
 <div .container x-data>
   <form .form.is-fullwidth x-data="formData" @submit.prevent="">
-    <p x-text="JSON.stringify(vms)">
     <div .control>
       <label .label> Имя стенда
       <input .input type=text x-model="title">
     <template x-for="(obj, index) in vms" *{indexKey}>
       <template x-if="vms[index]">
         <div .box>
-          <p x-text="JSON.stringify(obj)">
           <label .label> Название VM
           <div .control>
             <input .input type="text" x-model="vms[index]['name']">
@@ -383,7 +384,7 @@ genericDeploymentForm = let
               <select x-model="vms[index]['clone_from']">
                 <option value="" disabled> Выберите шаблон
                 <template x-for="template in templates">
-                  <option x-text="template">
+                  <option x-text="template" *{templateBind}>
           <label .label> Время ожидания после включения (в секундах)
           <div .control>
             <input .input type=number x-model.number="vms[index]['delay']">
@@ -424,7 +425,13 @@ genericDeploymentForm = let
                   <template x-for="avtype in interfaces">
                     <option x-text="avtype" *{netSelectBind}>
               <button .button @click="removeNetwork(vms[index], netObj)"> Удалить
-          <button .button.is-danger @click="deleteVM(index)"> Удалить VM
+          <div .is-flex.is-flex-direction-row.is-align-items-center>
+            <div .p-3>
+              <button .button.is-danger @click="deleteVM(index)"> Удалить VM
+            <div .p-3>
+              <button .button @click="moveVM(index, -1)"> Передвинуть выше
+            <div .p-3>
+              <button .button @click="moveVM(index, 1)"> Передвинуть ниже
     <div .block>
       <button .button.is-fullwidth @click="addVM()"> Добавить ВМ
     <div .block x-data="{input: ''}">
@@ -465,6 +472,14 @@ deploymentEditPage tid t = do
       deleteVM(i) { this.vms.splice(i, 1) },
       existingNetworks: #{preEscapedToMarkup $ (LBS.unpack . encode) templateExistingNetworks},
       removeENet(i) { this.existingNetworks.splice(i, 1) },
+      moveVM(index, delta) {
+        if (this.vms.length < 2 || index + delta < 0 || index + delta >= this.vms.length - 1) {
+          return;
+        }
+
+        var d = this.vms.splice(index, 1)[0];
+        this.vms.splice(index + delta, 0, d);
+      },
       sendRequest() {
         var availableVMs = this.vms.filter(i => i.available).map(i => i.name);
         var payload = JSON.stringify({title: this.title, availableVMs: availableVMs, existingNetworks: this.existingNetworks, vms: this.vms});
@@ -515,6 +530,14 @@ deploymentCreatePage t = do
       vms: [],
       addVM() { this.vms.push({clone_from: this.templates[0], available: true, networks: [], delay: 0, clean_networks: true, running: true, cores: 1, memory: 1024, cpulimit: 1, name: ""}) },
       deleteVM(i) { this.vms.splice(i, 1) },
+      moveVM(index, delta) {
+        if (this.vms.length < 2 || index + delta < 0 || index + delta >= this.vms.length - 1) {
+          return;
+        }
+
+        var d = this.vms.splice(i, 1)[0];
+        this.vms.splice(index + delta, 0, d);
+      },
       existingNetworks: [],
       removeENet(i) { this.existingNetworks.splice(i, 1) },
       sendRequest() {
