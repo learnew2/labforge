@@ -86,6 +86,7 @@ $doctype 5
                 Войти
             $of ActiveToken { .. }
               $if any (flip elem tokenRealmRoles) [deploymentAdmin, deploymentCreator, imageAdmin, imageAdmin]
+                <a .navbar-item href=/api/auth/portal> Портал
                 <div .navbar-item.has-dropdown.is-hoverable>
                   <div .navbar-link> Администрирование
                   <div .navbar-dropdown>
