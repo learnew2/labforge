@@ -192,12 +192,12 @@ deploymentInstancesPage did pageN refreshFlag t = do
       <ul .pagination-list>
         $if page /= 1
           <li>
-            <a .pagination-link href=/deployment/#{did}/instance?page=#{preEscapedToHtml $ page - 1}> #{page - 1}
+            <a .pagination-link href=/deployment/#{did}/instances?page=#{preEscapedToHtml $ page - 1}> #{page - 1}
         <li>
           <a .pagination-link.is-current> #{page}
         $if hasNext
           <li>
-            <a .pagination-link href=/deployment/#{did}/instance?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
+            <a .pagination-link href=/deployment/#{did}/instances?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
 $if refresh
   <script>
     setTimeout(function() {
