@@ -800,15 +800,30 @@ instanceSchemaPage dID t = do
   let ~(Just userToken) = t
   krokiEnv <- asks $ getEnvFor KrokiProxy
   topologyReq <- defaultRetryClientC krokiEnv (renderInstanceDiagram dID userToken)
-  (\v -> baseTemplate token Nothing (Just "Топология") v Nothing) [shamlet|
+  let head' = [shamlet|
+<style>
+  .svg__container svg {
+    width: inherit;
+    max-width: max(500px, 85%);
+  }
+
+  .svg__container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+|]
+  let body = [shamlet|
 <div .container>
   <a .button href="/instance/#{dID}"> Вернуться назад
   $case topologyReq
     $of (Right svg)
-      #{preEscapedToMarkup svg}
+      <div .svg__container>
+        #{preEscapedToMarkup svg}
     $of Left _
       <p> Ошибка рендеринга!
 |]
+  baseTemplate token (Just head') (Just "Топология") body Nothing
 
 instancePage :: Text -> Maybe BearerWrapper -> Maybe Text -> AppT Html
 instancePage dID t (Just vmPort) = do
@@ -825,13 +840,28 @@ instancePage dID t Nothing = do
   let instanceDeployConfig = fmap (\c@(DeployConfig { deployParameters = p, deployAgent = a }) -> c { deployParameters = p { deployToken = Nothing }, deployAgent = fmap (\agent -> agent { configAgentToken = "" }) a }) unsafeConfig
 
   let showText = "open ? 'Закрыть' : 'Открыть'" :: String
+
+  let head' = [shamlet|
+<style>
+  .svg__container svg {
+    width: inherit;
+    max-width: max(60%, 500px);
+    margin: auto;
+  }
+
+  .svg__container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+  }
+|]
   case instanceState of
     Deployed -> do
       let getPowerUrl key = "/instance/" <> T.unpack dID <> "?power=" <> key
 
       krokiEnv <- asks $ getEnvFor KrokiProxy
       topologyReq <- defaultRetryClientC krokiEnv (renderInstanceDiagram dID userToken)
-      (\v -> baseTemplate token Nothing (Just . T.unpack $ instanceTitle) v Nothing) [shamlet|
+      (\v -> baseTemplate token (Just head') (Just . T.unpack $ instanceTitle) v Nothing) [shamlet|
 <div .container>
   <h1 .title.is-3> #{instanceTitle}
   $case topologyReq
@@ -843,7 +873,8 @@ instancePage dID t Nothing = do
           <div .is-flex.is-flex-direction-row>
             <button .button @click="open = ! open" x-text=#{showText}>
             <a target=_blank .button href=/instance/#{dID}/schema> В новом окне
-        <div .is-max-tablet.container x-show="open"> #{preEscapedToMarkup svg}
+        <div .is-max-tablet.container.svg__container x-show="open">
+          #{preEscapedToMarkup svg}
     $of Left _
   <table .table.is-fullwidth>
     <thead>
