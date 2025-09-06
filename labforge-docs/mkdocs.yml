@@ -1,0 +1,15 @@
+site_name: Labforge docs
+site_url: ""
+copyright: "2025, Ilya Zamaratskikh"
+site_author: "Ilya Zamaratskikh"
+theme:
+  name: readthedocs
+
+nav:
+  - Введение: ./index.md
+  - Руководство пользователя: user-guide/index.md
+
+plugins: 
+  - search:
+      lang: [en, ru]
+      indexing: 'full'
