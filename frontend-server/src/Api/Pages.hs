@@ -562,6 +562,9 @@ deploymentListPage pageN successFlag t = do
   token <- canCreateDeployments t
   let ~(Just userToken) = t
   let page = unpackPage pageN
+  authEnv <- asks $ getEnvFor AuthService
+  allRoles <- withTokenVariable' $ \token' -> do
+    globalDecoder' $ defaultRetryClientC authEnv (Auth.getAllGroups (BearerWrapper token'))
   env <- asks $ getEnvFor DeploymentService
   d@(PagedResponse {responseTotal=totalDeployments, responseObjects=deployments}) <- globalDecoder' $ defaultRetryClientC env (C.getPagedDeploymentTemplates (Just page) userToken)
   let hasNext = hasNextPages page d
@@ -628,7 +631,7 @@ deploymentListPage pageN successFlag t = do
             <p> Развертывание
             <form .form.is-flex.is-flex-direction-row.is-align-items-center action=/deployment/#{templateId}/deploy>
               <p> Целевая группа Keycloak
-              <input .input type=text name=group>
+              ^{genericGroupForm [("name", "group")] allRoles}
               <div .select>
                 <select name=action>
                   <option disabled> Выберите вариант

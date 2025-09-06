@@ -1,9 +1,22 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Templates.Components
   ( genericDeploymentForm
+  , genericGroupForm
   ) where
 
+import           Api.Keycloak.Models.Group
+import           Data.Text                 (Text)
+import           Text.Blaze.Html
 import           Text.Hamlet
+
+genericGroupForm :: [(String, String)] -> [FoundGroup] -> Html
+genericGroupForm params groups = [shamlet|
+<div .select>
+  <select *{params}>
+    <option disabled> Выберите вариант
+    $forall (FoundGroup {groupName=groupName}) <- groups
+      <option value="#{groupName}"> #{groupName}
+|]
 
 genericDeploymentForm = let
   indexKey :: [(String, String)]
