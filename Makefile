@@ -9,10 +9,10 @@ PROD_COMPOSE_FILE=deployment/prod.docker-compose.yml
 update-tokens:
 	curl localhost:8001/api/cluster/websockify/config -o deployment/websockify/tokens.cfg
 
-build-nginx-prod:
+build-nginx-prod: ./deployment/nginx/Dockerfile ./labforge-docs
 	docker build --build-arg config_dir=deployment/nginx/conf.prod --build-arg ssl_dir=deployment/nginx/ssl-prod -t labforge-nginx-prod -f ./deployment/nginx/Dockerfile .
 
-build-nginx: ./deployment/nginx/Dockerfile
+build-nginx: ./deployment/nginx/Dockerfile ./labforge-docs
 	docker build -t labforge-nginx -f ./deployment/nginx/Dockerfile .
 
 build-bin: $(HS_SERVICES)
