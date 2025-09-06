@@ -22,6 +22,14 @@ import           Proxmox.Deploy.Models.Config.VM
 import           Proxmox.Models.VM
 import           Redis.Common
 
+matchSnapshotRequirements :: String -> Bool
+matchSnapshotRequirements "" = False
+matchSnapshotRequirements s | length s > 30 = False
+                            | length s < 3 = False
+                            | otherwise = case s of
+  ('_':_) -> False
+  (fC:otherSyms) -> fC `elem` ['a'..'z'] ++ ['A'..'Z'] && all (`elem` ['a'..'z'] ++ ['A'..'Z'] ++ ['0'..'9'] ++ ['_']) otherSyms
+
 suggestNetworkBridges :: [Map String String] -> M.Map String String -> Map String String
 suggestNetworkBridges l namesMap = helper M.empty l where
   helper :: Map String String -> [Map String String] -> Map String String

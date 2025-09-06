@@ -55,6 +55,7 @@ import           Proxmox.Deploy.Transaction
 import           Proxmox.Deploy.Types
 import           Proxmox.Models
 import           Proxmox.Models.Network
+import           Proxmox.Models.Snapshot
 import           Proxmox.Models.Storage
 import           Proxmox.Retry
 import           Proxmox.Schema
@@ -121,6 +122,117 @@ addLogToDeploymentInstance dID msg = do
 setDeploymentInstanceStatus :: Key DeploymentInstanceData -> DeploymentStatus -> AppT ()
 setDeploymentInstanceStatus dID status = do
   runDB $ updateWhere [ DeploymentInstanceDataId ==. dID ] [ DeploymentInstanceDataState =. status ]
+
+deployTransaction :: [TransactionStage] -> DeploymentInstanceDataId -> DeployConfig -> AppT Bool
+deployTransaction stages deploymentKey deployConfig@(DeployConfig { deployParameters = DeployParams {deployUrl=deployUrl, deployNodeName=nodeName} }) = do
+  cfg <- ask
+  parseRes <- liftIO $ tryParseUrl (unpack deployUrl)
+  case parseRes of
+    (Left e) -> do
+      $(logError) $ "Failed to parse URL: " <> pack e
+      addLogToDeploymentInstance deploymentKey $ "Failed to parse URL: " <> pack e
+      --setDeploymentInstanceStatus deploymentKey Failed
+      pure False
+    (Right url) -> do
+      m <- liftIO $ createProxmoxManager deployConfig
+      let state = ProxmoxState url m
+      let planState = TransactionState { transactionTarget=Deploy
+        , transactionProxmoxState=state
+        , transactionLogFunction=instanceLogFunction cfg deploymentKey
+        , transactionDeployConfig=deployConfig
+        , transactionDataSetF=(\_ -> pure ())
+        , transactionDataGetF=pure (TransactionData M.empty)
+        , transactionAllocateVMIDF=throwError (UnknownError "Cant allocate VMID")
+        , transactionActions=[]
+        }
+      v <- liftIO $ runProxmoxClient' state $ do
+        a <- P.getBridgeNodeNetworks nodeName
+        (ProxmoxResponse b _) <- P.getSDNZones
+        (ProxmoxResponse c _) <- P.getSDNNetworks
+        d <- P.getNodeStorage nodeName defaultProxmoxStorageFilter
+        e <- P.getActiveNodesVMMap
+        pure (a, b, c, d, e)
+      case v of
+        (Left e) -> do
+          $(logError) $ "Failed to get PVE data: " <> (pack . show) e
+          addLogToDeploymentInstance deploymentKey $ "Failed to get PVE data: " <> (pack . show) e
+          --setDeploymentInstanceStatus deploymentKey Failed
+          pure False
+        (Right (a, b, c, d, e)) -> do
+          planRes <- liftIO $ planTransactionActions stages a b c d e planState
+          case planRes of
+            (Left e) -> do
+              $(logError) $ "Failed to plan transaction: " <> (pack . show) e
+              addLogToDeploymentInstance deploymentKey $ "Failed to plan transaction: " <> (pack . show) e
+              --setDeploymentInstanceStatus deploymentKey Failed
+              pure False
+            (Right actions) -> do
+              result <- (liftIO . runExceptT) $ (runStateT (unTransaction executeTransaction) (planState { transactionActions = actions }))
+              case result of
+                (Left e) -> do
+                  $(logError) $ "Failed to run transaction: " <> (pack . show) e
+                  addLogToDeploymentInstance deploymentKey $ "Failed to run transaction: " <> (pack . show) e
+                  --setDeploymentInstanceStatus deploymentKey Failed
+                  pure False
+                (Right _) -> do
+                  --setDeploymentInstanceStatus deploymentKey (if target == Deploy then Deployed else Created)
+                  pure True
+
+generateAndDeployTransaction :: DeployTarget -> DeploymentInstanceDataId -> DeployConfig -> AppT Bool
+generateAndDeployTransaction target deploymentKey deployConfig@(DeployConfig { deployParameters = DeployParams {deployUrl=deployUrl, deployNodeName=nodeName} }) = do
+  cfg <- ask
+  parseRes <- liftIO $ tryParseUrl (unpack deployUrl)
+  case parseRes of
+    (Left e) -> do
+      $(logError) $ "Failed to parse URL: " <> pack e
+      addLogToDeploymentInstance deploymentKey $ "Failed to parse URL: " <> pack e
+      setDeploymentInstanceStatus deploymentKey Failed
+      pure False
+    (Right url) -> do
+      m <- liftIO $ createProxmoxManager deployConfig
+      let stages = planTransactionStages deployConfig target
+      let state = ProxmoxState url m
+      let planState = TransactionState { transactionTarget=target
+        , transactionProxmoxState=state
+        , transactionLogFunction=instanceLogFunction cfg deploymentKey
+        , transactionDeployConfig=deployConfig
+        , transactionDataSetF=(\_ -> pure ())
+        , transactionDataGetF=pure (TransactionData M.empty)
+        , transactionAllocateVMIDF=throwError (UnknownError "Cant allocate VMID")
+        , transactionActions=[]
+        }
+      v <- liftIO $ runProxmoxClient' state $ do
+        a <- P.getBridgeNodeNetworks nodeName
+        (ProxmoxResponse b _) <- P.getSDNZones
+        (ProxmoxResponse c _) <- P.getSDNNetworks
+        d <- P.getNodeStorage nodeName defaultProxmoxStorageFilter
+        e <- P.getActiveNodesVMMap
+        pure (a, b, c, d, e)
+      case v of
+        (Left e) -> do
+          $(logError) $ "Failed to get PVE data: " <> (pack . show) e
+          addLogToDeploymentInstance deploymentKey $ "Failed to get PVE data: " <> (pack . show) e
+          setDeploymentInstanceStatus deploymentKey Failed
+          pure False
+        (Right (a, b, c, d, e)) -> do
+          planRes <- liftIO $ planTransactionActions stages a b c d e planState
+          case planRes of
+            (Left e) -> do
+              $(logError) $ "Failed to plan transaction: " <> (pack . show) e
+              addLogToDeploymentInstance deploymentKey $ "Failed to plan transaction: " <> (pack . show) e
+              setDeploymentInstanceStatus deploymentKey Failed
+              pure False
+            (Right actions) -> do
+              result <- (liftIO . runExceptT) $ (runStateT (unTransaction executeTransaction) (planState { transactionActions = actions }))
+              case result of
+                (Left e) -> do
+                  $(logError) $ "Failed to run transaction: " <> (pack . show) e
+                  addLogToDeploymentInstance deploymentKey $ "Failed to run transaction: " <> (pack . show) e
+                  setDeploymentInstanceStatus deploymentKey Failed
+                  pure False
+                (Right _) -> do
+                  setDeploymentInstanceStatus deploymentKey (if target == Deploy then Deployed else Created)
+                  pure True
 
 handleTask :: TQueue QueryRequest -> QueryRequest -> AppT ()
 handleTask taskQuery (AllocateNode dID) = do
@@ -250,6 +362,72 @@ handleTask taskQuery (GroupDestroy tID groupName) = do
         DeploymentInstanceDataDeployConfig !=. Nothing
         ] []
       mapM_ (\(DeploymentInstanceDataKey t) -> (liftIO . atomically) $ writeTQueue taskQuery (DestroyInstance t)) existingDeployments
+handleTask taskQuery (GroupRollback tID groupName snapName) = do
+  $(logDebug) $ "Creating group rollback for " <> groupName <> "(" <> (pack . show) tID <> ")"
+  authEnv <- asks $ getEnvFor AuthService
+  groupMembersResp <- withTokenVariable' $ \t -> runClientApp authEnv $ getAllGroupMembers groupName (BearerWrapper t)
+  case groupMembersResp of
+    (Left e) -> $(logError) $ "Group members request error: " <> (pack . show) e
+    (Right users) -> do
+      let usersId = map userID users
+      existingDeployments <- runDB $ selectKeysList [
+        DeploymentInstanceDataOwnerId <-. usersId,
+        DeploymentInstanceDataParent ==. DeploymentTemplateDataKey (fromIntegral tID),
+        DeploymentInstanceDataState ==. Deployed,
+        DeploymentInstanceDataDeployConfig !=. Nothing
+        ] []
+      mapM_ (\(DeploymentInstanceDataKey t) -> (liftIO . atomically) $ writeTQueue taskQuery (RollbackInstance t snapName)) existingDeployments
+handleTask taskQuery (DeploymentMakeSnapshot dID snapName) = do
+  let instanceKey = (DeploymentInstanceDataKey dID)
+  let logInstance = addLogToDeploymentInstance instanceKey
+  let setStatus = setDeploymentInstanceStatus instanceKey
+  $(logInfo) $ "Snapping instance " <> (pack . show) dID
+  instance' <- runDB $ get (DeploymentInstanceDataKey dID)
+  case instance' of
+    Nothing -> $(logError) $ "Deploy instance " <> dID <> " not found"
+    (Just (DeploymentInstanceData { .. })) -> do
+      case deploymentInstanceDataDeployConfig of
+        Nothing -> do
+          $(logError) $ "Deployment config is not set!"
+          logInstance "Deployment config is not set!"
+          setStatus Failed
+        (Just deployConfig@(DeployConfig { deployVMs = vms })) -> do
+          _ <- deployTransaction (map (`SnapshotExists` (ProxmoxSnapshotCreate {snapshotCreateStateful=Just True, snapshotCreateName=snapName, snapshotCreateDesc=Nothing})) vms) instanceKey deployConfig
+          pure ()
+handleTask taskQuery (DeploymentDeleteSnapshot dID snapName) = do
+  let instanceKey = (DeploymentInstanceDataKey dID)
+  let logInstance = addLogToDeploymentInstance instanceKey
+  let setStatus = setDeploymentInstanceStatus instanceKey
+  $(logInfo) $ "Removing snapshot of instance " <> (pack . show) dID
+  instance' <- runDB $ get (DeploymentInstanceDataKey dID)
+  case instance' of
+    Nothing -> $(logError) $ "Deploy instance " <> dID <> " not found"
+    (Just (DeploymentInstanceData { .. })) -> do
+      case deploymentInstanceDataDeployConfig of
+        Nothing -> do
+          $(logError) $ "Deployment config is not set!"
+          logInstance "Deployment config is not set!"
+          setStatus Failed
+        (Just deployConfig@(DeployConfig { deployVMs = vms })) -> do
+          _ <- deployTransaction (map (`SnapshotNotExists` (ProxmoxSnapshotCreate {snapshotCreateStateful=Just True, snapshotCreateName=snapName, snapshotCreateDesc=Nothing})) vms) instanceKey deployConfig
+          pure ()
+handleTask taskQuery (RollbackInstance dID snapName) = do
+  let instanceKey = (DeploymentInstanceDataKey dID)
+  let logInstance = addLogToDeploymentInstance instanceKey
+  let setStatus = setDeploymentInstanceStatus instanceKey
+  $(logInfo) $ "Rollback of instance " <> (pack . show) dID
+  instance' <- runDB $ get (DeploymentInstanceDataKey dID)
+  case instance' of
+    Nothing -> $(logError) $ "Deploy instance " <> dID <> " not found"
+    (Just (DeploymentInstanceData { .. })) -> do
+      case deploymentInstanceDataDeployConfig of
+        Nothing -> do
+          $(logError) $ "Deployment config is not set!"
+          logInstance "Deployment config is not set!"
+          setStatus Failed
+        (Just deployConfig@(DeployConfig { deployVMs = vms })) -> do
+          _ <- deployTransaction (map (`VMRollbacked` unpack snapName) vms) instanceKey deployConfig
+          pure ()
 handleTask taskQuery (DeployInstance dID) = do
   let instanceKey = (DeploymentInstanceDataKey dID)
   let logInstance = addLogToDeploymentInstance instanceKey
@@ -266,55 +444,9 @@ handleTask taskQuery (DeployInstance dID) = do
           $(logError) $ "Deployment config is not set!"
           logInstance "Deployment config is not set!"
           setStatus Failed
-        (Just deployConfig@(DeployConfig { deployParameters = DeployParams {deployUrl=deployUrl, deployNodeName=nodeName} })) -> do
-          cfg <- ask
-          parseRes <- liftIO $ tryParseUrl (unpack deployUrl)
-          case parseRes of
-            (Left e) -> do
-              $(logError) $ "Failed to parse URL: " <> pack e
-              logInstance $ "Failed to parse URL: " <> pack e
-              setStatus Failed
-            (Right url) -> do
-              m <- liftIO $ createProxmoxManager deployConfig
-              let stages = planTransactionStages deployConfig Deploy
-              let state = ProxmoxState url m
-              let planState = TransactionState { transactionTarget=Deploy
-                , transactionProxmoxState=state
-                , transactionLogFunction=instanceLogFunction cfg instanceKey
-                , transactionDeployConfig=deployConfig
-                , transactionDataSetF=(\_ -> pure ())
-                , transactionDataGetF=pure (TransactionData M.empty)
-                , transactionAllocateVMIDF=throwError (UnknownError "Cant allocate VMID")
-                , transactionActions=[]
-                }
-              v <- liftIO $ runProxmoxClient' state $ do
-                a <- P.getBridgeNodeNetworks nodeName
-                (ProxmoxResponse b _) <- P.getSDNZones
-                (ProxmoxResponse c _) <- P.getSDNNetworks
-                d <- P.getNodeStorage nodeName defaultProxmoxStorageFilter
-                e <- P.getActiveNodesVMMap
-                pure (a, b, c, d, e)
-              case v of
-                (Left e) -> do
-                  $(logError) $ "Failed to get PVE data: " <> (pack . show) e
-                  logInstance $ "Failed to get PVE data: " <> (pack . show) e
-                  setStatus Failed
-                (Right (a, b, c, d, e)) -> do
-                  planRes <- liftIO $ planTransactionActions stages a b c d e planState
-                  case planRes of
-                    (Left e) -> do
-                      $(logError) $ "Failed to plan transaction: " <> (pack . show) e
-                      logInstance $ "Failed to plan transaction: " <> (pack . show) e
-                      setStatus Failed
-                    (Right actions) -> do
-                      result <- (liftIO . runExceptT) $ (runStateT (unTransaction executeTransaction) (planState { transactionActions = actions }))
-                      case result of
-                        (Left e) -> do
-                          $(logError) $ "Failed to run transaction: " <> (pack . show) e
-                          logInstance $ "Failed to run transaction: " <> (pack . show) e
-                          setStatus Failed
-                        (Right _) -> do
-                          setStatus Deployed
+        (Just deployConfig) -> do
+          _ <- generateAndDeployTransaction Deploy instanceKey deployConfig
+          pure ()
 handleTask tasksQueue (DestroyInstance dID) = do
   let instanceKey = (DeploymentInstanceDataKey dID)
   let logInstance = addLogToDeploymentInstance instanceKey
@@ -331,57 +463,37 @@ handleTask tasksQueue (DestroyInstance dID) = do
           $(logError) $ "Deployment config is not set!"
           logInstance "Deployment config is not set!"
           setStatus Created
-        (Just deployConfig@(DeployConfig { deployParameters = DeployParams {deployUrl=deployUrl, deployNodeName=nodeName} })) -> do
-          cfg <- ask
-          parseRes <- liftIO $ tryParseUrl (unpack deployUrl)
-          case parseRes of
-            (Left e) -> do
-              $(logError) $ "Failed to parse URL: " <> pack e
-              logInstance $ "Failed to parse URL: " <> pack e
-              setStatus Failed
-            (Right url) -> do
-              m <- liftIO $ createProxmoxManager deployConfig
-              let stages = planTransactionStages deployConfig Destroy
-              let state = ProxmoxState url m
-              let planState = TransactionState { transactionTarget=Destroy
-                , transactionProxmoxState=state
-                , transactionLogFunction=instanceLogFunction cfg instanceKey
-                , transactionDeployConfig=deployConfig
-                , transactionDataSetF=(\_ -> pure ())
-                , transactionDataGetF=pure (TransactionData M.empty)
-                , transactionAllocateVMIDF=throwError (UnknownError "Cant allocate VMID")
-                , transactionActions=[]
-                }
-              v <- liftIO $ runProxmoxClient' state $ do
-                a <- P.getBridgeNodeNetworks nodeName
-                (ProxmoxResponse b _) <- P.getSDNZones
-                (ProxmoxResponse c _) <- P.getSDNNetworks
-                d <- P.getNodeStorage nodeName defaultProxmoxStorageFilter
-                e <- P.getActiveNodesVMMap
-                pure (a, b, c, d, e)
-              case v of
-                (Left e) -> do
-                  $(logError) $ "Failed to get PVE data: " <> (pack . show) e
-                  logInstance $ "Failed to get PVE data: " <> (pack . show) e
-                  setStatus Failed
-                (Right (a, b, c, d, e)) -> do
-                  planRes <- liftIO $ planTransactionActions stages a b c d e planState
-                  case planRes of
-                    (Left e) -> do
-                      $(logError) $ "Failed to plan transaction: " <> (pack . show) e
-                      logInstance $ "Failed to plan transaction: " <> (pack . show) e
-                      setStatus Failed
-                    (Right actions) -> do
-                      result <- (liftIO . runExceptT) $ (runStateT (unTransaction executeTransaction) (planState { transactionActions = actions }))
-                      case result of
-                        (Left e) -> do
-                          $(logError) $ "Failed to run transaction: " <> (pack . show) e
-                          logInstance $ "Failed to run transaction: " <> (pack . show) e
-                          setStatus Failed
-                        (Right _) -> do
-                          setStatus Created
-                          _ <- runDB $ delete instanceKey
-                          pure ()
+        (Just deployConfig) -> do
+          deployed <- generateAndDeployTransaction Destroy instanceKey deployConfig
+          if deployed then runDB $ delete instanceKey else pure ()
+handleTask taskQuery (GroupMakeSnapshot tID groupName snapName) = do
+  authEnv <- asks $ getEnvFor AuthService
+  groupMembersResp <- withTokenVariable' $ \t -> runClientApp authEnv $ getAllGroupMembers groupName (BearerWrapper t)
+  case groupMembersResp of
+    (Left e) -> $(logError) $ "Group members request error: " <> (pack . show) e
+    (Right users) -> do
+      let usersId = map userID users
+      existingDeployments <- runDB $ selectKeysList [
+        DeploymentInstanceDataOwnerId <-. usersId,
+        DeploymentInstanceDataParent ==. DeploymentTemplateDataKey (fromIntegral tID),
+        DeploymentInstanceDataState ==. Deployed,
+        DeploymentInstanceDataDeployConfig !=. Nothing
+        ] []
+      mapM_ (\(DeploymentInstanceDataKey t) -> (liftIO . atomically) $ writeTQueue taskQuery (DeploymentMakeSnapshot t snapName)) existingDeployments
+handleTask taskQuery (GroupDeleteSnapshot tID groupName snapName) = do
+  authEnv <- asks $ getEnvFor AuthService
+  groupMembersResp <- withTokenVariable' $ \t -> runClientApp authEnv $ getAllGroupMembers groupName (BearerWrapper t)
+  case groupMembersResp of
+    (Left e) -> $(logError) $ "Group members request error: " <> (pack . show) e
+    (Right users) -> do
+      let usersId = map userID users
+      existingDeployments <- runDB $ selectKeysList [
+        DeploymentInstanceDataOwnerId <-. usersId,
+        DeploymentInstanceDataParent ==. DeploymentTemplateDataKey (fromIntegral tID),
+        DeploymentInstanceDataState ==. Deployed,
+        DeploymentInstanceDataDeployConfig !=. Nothing
+        ] []
+      mapM_ (\(DeploymentInstanceDataKey t) -> (liftIO . atomically) $ writeTQueue taskQuery (DeploymentDeleteSnapshot t snapName)) existingDeployments
 handleTask _ (GroupPower tID groupName powerOn) = do
   authEnv <- asks $ getEnvFor AuthService
   groupMembersResp <- withTokenVariable' $ \t -> runClientApp authEnv $ getAllGroupMembers groupName (BearerWrapper t)

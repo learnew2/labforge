@@ -223,6 +223,31 @@ callGroupDeployment tID groupName (BearerWrapper token) = do
                 putTask tasksPool (GroupDeployment tID group)
                 pure ()
 
+callGroupSnapshot :: Int -> Maybe Text -> Maybe Text -> Bool -> Bool -> BearerWrapper -> AppT ()
+callGroupSnapshot _ (Just "") _ _ _ _ = sendJSONError err400 (JSONError "badRequest" "Snapshot or group is not specified" Null)
+callGroupSnapshot _ _ (Just "") _ _ _ = sendJSONError err400 (JSONError "badRequest" "Snapshot or group is not specified" Null)
+callGroupSnapshot tID (Just groupName) (Just snapName) doDelete doRollback (BearerWrapper token) = do
+  if not $ matchSnapshotRequirements (T.unpack snapName) then sendJSONError err400 (JSONError "badRequest" "Bad snapshot name" Null) else do
+    ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
+    template' <- runDB $ get (DeploymentTemplateDataKey . fromIntegral $ tID)
+    case template' of
+      Nothing -> sendJSONError err404 (JSONError "notFound" "Template not found" Null)
+      (Just (DeploymentTemplateData { .. })) -> do
+        if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
+          sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
+        else do
+          Config { .. } <- ask
+          r <- withTokenVariable' $ \t -> do
+            defaultRetryClientC authEnv (getPagedGroupMembers groupName (BearerWrapper t) Nothing)
+          case r of
+            (Left _) -> sendJSONError err400 (JSONError "badRequest" "Cant get group members" Null)
+            (Right _) -> do
+              case (doDelete, doRollback) of
+                (False, False) -> putTask tasksPool (GroupMakeSnapshot tID groupName snapName)
+                (True, _) -> putTask tasksPool (GroupDeleteSnapshot tID groupName snapName)
+                (False, True) -> putTask tasksPool (GroupRollback tID groupName snapName)
+callGroupSnapshot _ _ _ _ _ _ = sendJSONError err400 (JSONError "badRequest" "Snapshot or group is not specified" Null)
+
 -- TODO: unify with function upper
 callGroupDestroy :: Int -> Maybe Text -> BearerWrapper -> AppT ()
 callGroupDestroy tID groupName (BearerWrapper token) = do
@@ -507,6 +532,7 @@ deploymentServer = getPagedTemplates
   :<|> patchDeploymentTemplate
   :<|> callGroupDeployment
   :<|> callGroupDestroy
+  :<|> callGroupSnapshot
   :<|> callGroupPower
   :<|> requestDeploymentVMID
   :<|> requestDeploymentDisplay
