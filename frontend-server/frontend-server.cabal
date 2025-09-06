@@ -35,6 +35,7 @@ library
       Init
       Roles
       Templates.Base
+      Templates.Components
       Utils
   other-modules:
       Paths_frontend_server

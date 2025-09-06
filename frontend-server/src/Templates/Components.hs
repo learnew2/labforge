@@ -1,0 +1,103 @@
+{-# LANGUAGE QuasiQuotes #-}
+module Templates.Components
+  ( genericDeploymentForm
+  ) where
+
+import           Text.Hamlet
+
+genericDeploymentForm = let
+  indexKey :: [(String, String)]
+  indexKey = [(":key", "index")]
+
+  netIndexKey :: [(String, String)]
+  netIndexKey = [(":key", "netIndex")]
+
+  netSelectBind :: [(String, String)]
+  netSelectBind = [(":selected", "vms[index]['networks'][netIndex]['type'] == avtype")]
+
+  netNumberBind :: [(String, String)]
+  netNumberBind = [(":selected", "vms[index]['networks'][netIndex]['number'] == i - 1")]
+
+  templateBind :: [(String, String)]
+  templateBind = [(":selected", "vms[index]['clone_from'] == template")]
+  in [shamlet|
+<div .container x-data>
+  <form .form.is-fullwidth x-data="formData" @submit.prevent="">
+    <div .control>
+      <label .label> Имя стенда
+      <input .input type=text x-model="title">
+    <template x-for="(obj, index) in vms" *{indexKey}>
+      <template x-if="vms[index]">
+        <div .box>
+          <label .label> Название VM
+          <div .control>
+            <input .input type="text" x-model="vms[index]['name']">
+          <label .label> Клонировать из
+          <div .control>
+            <div .select>
+              <select x-model="vms[index]['clone_from']">
+                <option value="" disabled> Выберите шаблон
+                <template x-for="template in templates">
+                  <option x-text="template" *{templateBind}>
+          <label .label> Время ожидания после включения (в секундах)
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['delay']">
+          <label .label> Кол-во ядер
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['cores']">
+          <label .label> Кол-во ОЗУ (в МБ)
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['memory']">
+          <label .label> Лимит нагрузки CPU (в ядрах)
+          <div .control>
+            <input .input type=number x-model.number="vms[index]['cpu_limit']">
+          <div .control>
+            <label .checkbox>
+              <input .checkbox type=checkbox x-model="vms[index]['available']">
+              Доступна пользователю
+          <div .control>
+            <label .checkbox>
+              <input .checkbox type=checkbox x-model="vms[index]['running']">
+              Включить VM при развертывании
+          <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth x-data="netForm">
+            <input .input type="text" x-model="netname">
+            <div .select>
+              <select x-model="nettype">
+                <template x-for="avtype in interfaces">
+                  <option x-text="avtype">
+            <button .button @click="addNetwork(vms[index])"> Подключить
+          <template x-for="(netObj, netIndex) in vms[index]['networks']" x-data="netForm">
+            <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth>
+              <input .input type="text" x-model="vms[index]['networks'][netIndex]['name']">
+              <div .select>
+                <select x-model.number="vms[index]['networks'][netIndex]['number']">
+                  <option value=""> -
+                  <template x-for="i in 33">
+                    <option x-text="i - 1" *{netNumberBind}>
+              <div .select>
+                <select x-model="vms[index]['networks'][netIndex]['type']">
+                  <template x-for="avtype in interfaces">
+                    <option x-text="avtype" *{netSelectBind}>
+              <button .button @click="removeNetwork(vms[index], netObj)"> Удалить
+          <div .is-flex.is-flex-direction-row.is-align-items-center>
+            <div .p-3>
+              <button .button.is-danger @click="deleteVM(index)"> Удалить VM
+            <div .p-3>
+              <button .button @click="moveVM(index, -1)"> Передвинуть выше
+            <div .p-3>
+              <button .button @click="moveVM(index, 1)"> Передвинуть ниже
+    <div .block>
+      <button .button.is-fullwidth @click="addVM()"> Добавить ВМ
+    <div .block x-data="{input: ''}">
+      <h2 .subtitle.is-5> Список существующих сетей
+      <p> Такие сети не создаются, а используют bridge с тем же именем.
+      <div .control>
+        <label .label> Имя сети
+        <input .input type="text" x-model="input">
+      <button .button.is-fullwidth @click="if (input.length > 0 && !existingNetworks.includes(input)) { existingNetworks.push(input); input = '' }"}> Добавить
+      <template x-for="(net, netIndex) in existingNetworks" *{netIndexKey}>
+        <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth>
+          <p .pr-5 x-text="net">
+          <button .button.is-danger @click="removeENet(netIndex)"> Удалить
+    <button .button.is-success.is-fullwidth @click="sendRequest"> Создать стенд
+|]
