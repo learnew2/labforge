@@ -569,7 +569,7 @@ deploymentListPage pageN successFlag t = do
   d@(PagedResponse {responseTotal=totalDeployments, responseObjects=deployments}) <- globalDecoder' $ defaultRetryClientC env (C.getPagedDeploymentTemplates (Just page) userToken)
   let hasNext = hasNextPages page d
   let totallyEmpty = page == 1 && totalDeployments == 0
-  (\v -> baseTemplate token Nothing (Just "Развертывания") v Nothing) [shamlet|
+  (\v -> baseTemplate token Nothing (Just "Развертывания") v (Just $ genericGroupActionFormData (head allRoles))) [shamlet|
 <div .container>
   $case successFlag
     $of (Just 0)
@@ -629,17 +629,7 @@ deploymentListPage pageN successFlag t = do
                           $else
                             Нет
             <p> Развертывание
-            <form .form.is-flex.is-flex-direction-row.is-align-items-center action=/deployment/#{templateId}/deploy>
-              <p> Целевая группа Keycloak
-              ^{genericGroupForm [("name", "group")] allRoles}
-              <div .select>
-                <select name=action>
-                  <option disabled> Выберите вариант
-                  <option value=deploy> Создать стенд
-                  <option value=destroy> Удалить стенд
-                  <option value=turnoff> Выключить стенд
-                  <option value=turnon> Включить стенд
-              <button .button> Выполнить
+            ^{genericGroupActionForm templateId allRoles}
           <footer .card-footer>
             <a .card-footer-item href=/deployment/#{templateId}/instances> Стенды
             <a .card-footer-item href=/deployment/#{templateId}/edit> Редактировать

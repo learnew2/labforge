@@ -2,12 +2,94 @@
 module Templates.Components
   ( genericDeploymentForm
   , genericGroupForm
+  , genericGroupActionFormData
+  , genericGroupActionForm
   ) where
 
 import           Api.Keycloak.Models.Group
 import           Data.Text                 (Text)
 import           Text.Blaze.Html
 import           Text.Hamlet
+
+genericGroupActionFormData :: FoundGroup -> Html
+genericGroupActionFormData (FoundGroup { groupName=defaultGroup }) = [shamlet|
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data("groupDeploymentFormData", (deploymentId) => ({
+      deploymentId: deploymentId,
+      action: "deploy",
+      group: "#{preEscapedToMarkup defaultGroup}",
+      snapname: "",
+      sendRequest() {
+        if (this.action == "deploy" || this.action == "destroy") {
+          let url = "/api/deployment/deployments/" + deploymentId + "/" + this.action + "/group?group=" + encodeURIComponent(this.group)
+          fetch(url).then(r => {
+            if (r.ok) {
+              location.reload();
+            } else {
+              return r.json().then(resp => {throw new Error(resp.error)})
+            }
+          }).catch(err => {
+            alert("Ошибка: " + err)
+            console.log(err);
+          });
+        }
+        if (this.action == "turnon" || this.action == "turnoff") {
+          let url = "/api/deployment/deployments/" + deploymentId + "/power/group?group=" + encodeURIComponent(this.group) + (this.action == "turnon" ? "&on" : "")
+          fetch(url).then(r => {
+            if (r.ok) {
+              location.reload();
+            } else {
+              return r.json().then(resp => {throw new Error(resp.error)})
+            }
+          }).catch(err => {
+            alert("Ошибка: " + err)
+            console.log(err);
+          });
+        }
+        if (this.snapname.length > 0 && (this.action == "makesnap" || this.action == "delsnap" || this.action == "rollback")) {
+          let url = "/api/deployment/deployments/" + deploymentId + "/snapshot/group?group=" + encodeURIComponent(this.group) + "&snapname=" + encodeURIComponent(this.snapname) + (this.action == "delsnap" ? "&delete" : "") + (this.action == "rollback" ? "&rollback" : "")
+          fetch(url).then(r => {
+            if (r.ok) {
+              location.reload();
+            } else {
+              return r.json().then(resp => {throw new Error(resp.error)})
+            }
+          }).catch(err => {
+            alert("Ошибка: " + err)
+            console.log(err);
+          });
+        }
+      }
+    }))
+  })
+|]
+
+genericGroupActionForm :: Int -> [FoundGroup] -> Html
+genericGroupActionForm templateId groups = [shamlet|
+<form .form @submit.prevent="" x-data="groupDeploymentFormData(#{preEscapedToMarkup templateId})">
+  <label .label> Целевая группа Keycloak
+  <div .control>
+    ^{genericGroupForm [("x-model", "group")] groups}
+  <label .label> Выберите действие
+  <div .control>
+    <div .select>
+      <select x-model="action">
+        <option disabled> Выберите вариант
+        <option value=deploy> Создать стенд
+        <option value=destroy> Удалить стенд
+        <option value=turnoff> Выключить стенд
+        <option value=turnon> Включить стенд
+        <option value=makesnap> Сделать снапшот
+        <option value=delsnap> Удалить снапшот
+        <option value=rollback> Откатить стенды
+  <template *{[("x-if", "action == 'makesnap' || action == 'delsnap' || action == 'rollback'")]}>
+    <div>
+      <label .label> Название снапшота
+      <div .control>
+        <input .input type=text x-model="snapname">
+  <button .button.is-fullwidth @click="sendRequest"> Выполнить
+|]
 
 genericGroupForm :: [(String, String)] -> [FoundGroup] -> Html
 genericGroupForm params groups = [shamlet|
