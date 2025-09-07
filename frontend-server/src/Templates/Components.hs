@@ -4,12 +4,41 @@ module Templates.Components
   , genericGroupForm
   , genericGroupActionFormData
   , genericGroupActionForm
+  , genericInstanceActionFormData
+  , genericInstanceActionForm
   ) where
 
 import           Api.Keycloak.Models.Group
 import           Data.Text                 (Text)
 import           Text.Blaze.Html
 import           Text.Hamlet
+
+genericInstanceActionFormData :: Html
+genericInstanceActionFormData = [shamlet|
+<script>
+  document.addEventListener('alpine:init', () => {
+    Alpine.data("instanceActionFormData", (instanceId) => ({
+      instanceId: instanceId,
+      action: "makesnap",
+      snapname: "",
+      sendRequest() {
+        if (this.snapname.length > 0 && (this.action == "makesnap" || this.action == "delsnap" || this.action == "rollback")) {
+          let url = "/api/deployment/instances/" + instanceId + "/snapshot?snapname=" + encodeURIComponent(this.snapname) + (this.action == "delsnap" ? "&delete" : "") + (this.action == "rollback" ? "&rollback" : "")
+          fetch(url).then(r => {
+            if (r.ok) {
+              location.reload();
+            } else {
+              return r.json().then(resp => {throw new Error(resp.error)})
+            }
+          }).catch(err => {
+            alert("Ошибка: " + err)
+            console.log(err);
+          });
+        }
+      }
+    }))
+  })
+|]
 
 genericGroupActionFormData :: FoundGroup -> Html
 genericGroupActionFormData (FoundGroup { groupName=defaultGroup }) = [shamlet|
@@ -63,6 +92,25 @@ genericGroupActionFormData (FoundGroup { groupName=defaultGroup }) = [shamlet|
       }
     }))
   })
+|]
+
+genericInstanceActionForm :: Text -> Html
+genericInstanceActionForm instanceKey = [shamlet|
+<form .form @submit.prevent="" x-data="instanceActionFormData('#{preEscapedToMarkup instanceKey}')">
+  <label .label> Выберите действие
+  <div .control>
+    <div .select>
+      <select x-model="action">
+        <option disabled> Выберите вариант
+        <option value=makesnap> Сделать снапшот
+        <option value=delsnap> Удалить снапшот
+        <option value=rollback> Откатить стенды
+  <template *{[("x-if", "action == 'makesnap' || action == 'delsnap' || action == 'rollback'")]}>
+    <div>
+      <label .label> Название снапшота
+      <div .control>
+        <input .input type=text x-model="snapname">
+  <button .button.is-fullwidth @click="sendRequest"> Выполнить
 |]
 
 genericGroupActionForm :: Int -> [FoundGroup] -> Html

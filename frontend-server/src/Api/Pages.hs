@@ -84,7 +84,7 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "instance" :> Capture "instanceID" Text :> "delete" :> AuthHeader' :> Get '[HTML] Html
   :<|> "vnc" :> Capture "vmPort" Text :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> "create" :> AuthHeader' :> Get '[HTML] Html
-  :<|> "deployment" :> "my" :> QueryParam "page" Int :> QueryParam "success" Int :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> "my" :> QueryParam "page" Int :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> Capture "deploymentId" Int :> "delete" :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> Capture "deploymentId" Int :> "edit" :> AuthHeader' :> Get '[HTML] Html
   :<|> "image" :> Capture "imageId" Int :> "delete" :> AuthHeader' :> Get '[HTML] Html
@@ -143,7 +143,7 @@ deploymentInstancesPage did pageN refreshFlag t = do
   let userData = either (const M.empty) (M.fromList . map (\e -> (userID e, e))) userData'
   let hasNext = hasNextPages page r
   let totallyEmpty = page == 1 && total == 0
-  (\v -> baseTemplate token Nothing (Just "Образы") v Nothing) [shamlet|
+  (\v -> baseTemplate token Nothing (Just "Образы") v (Just genericInstanceActionFormData)) [shamlet|
 <div .container>
   $if totallyEmpty
     <h1 .title.is-3> Нет развернутых стендов!
@@ -186,6 +186,7 @@ deploymentInstancesPage did pageN refreshFlag t = do
                   Пользователь #{briefDeploymentUser}
           <div .card-content>
             #{prettyDeployStatus briefDeploymentStatus}
+            ^{genericInstanceActionForm briefDeploymentId}
           <footer .card-footer>
             <a .card-footer-item href=/instance/#{briefDeploymentId}> Открыть
             <a .card-footer-item href=/instance/#{briefDeploymentId}/delete> Удалить
@@ -557,8 +558,8 @@ vncPage vmPort t = let
   else do
     baseTemplate token (Just head) (Just "VNC") bodyOff Nothing
 
-deploymentListPage :: Maybe Int -> Maybe Int -> Maybe BearerWrapper -> AppT Html
-deploymentListPage pageN successFlag t = do
+deploymentListPage :: Maybe Int -> Maybe BearerWrapper -> AppT Html
+deploymentListPage pageN t = do
   token <- canCreateDeployments t
   let ~(Just userToken) = t
   let page = unpackPage pageN
@@ -571,28 +572,6 @@ deploymentListPage pageN successFlag t = do
   let totallyEmpty = page == 1 && totalDeployments == 0
   (\v -> baseTemplate token Nothing (Just "Развертывания") v (Just $ genericGroupActionFormData (head allRoles))) [shamlet|
 <div .container>
-  $case successFlag
-    $of (Just 0)
-      <div .message.is-danger>
-        <div .message-body>
-          Не удалось начать развертывание! Проверьте корректность названия группы и попробуйте повторить попытку позже.
-    $of (Just 1)
-      <div .message.is-success>
-        <div .message-body>
-          Развертывание создано! В течение скорого времени на указанную группу будут созданы стенды. Вы можете наблюдать за ними во вкладке "Стенды" выбранного шаблона.
-    $of (Just 2)
-      <div .message.is-info>
-        <div .message-body>
-          Развертывание создано! В течение скорого времени стенды указанной группы будут удалены. Вы можете наблюдать за ними во вкладке "Стенды" выбранного шаблона.
-    $of (Just 3)
-      <div .message.is-info>
-        <div .message-body>
-          Запрос на включение стендов создан!
-    $of (Just 4)
-      <div .message.is-info>
-        <div .message-body>
-          Запрос на выключение стендов создан!
-    $of _
   $if totallyEmpty
     <h1 .title.is-3> Нет доступных развертываний!
   $else
