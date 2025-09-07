@@ -223,6 +223,26 @@ callGroupDeployment tID groupName (BearerWrapper token) = do
                 putTask tasksPool (GroupDeployment tID group)
                 pure ()
 
+callInstanceSnapshot :: Text -> Maybe Text -> Bool -> Bool -> BearerWrapper -> AppT ()
+callInstanceSnapshot _ (Just "") _ _ _ = sendJSONError err400 (JSONError "badRequest" "Snapshot or group is not specified" Null)
+callInstanceSnapshot _ Nothing _ _ _ = sendJSONError err400 (JSONError "badRequest" "Snapshot or group is not specified" Null)
+callInstanceSnapshot instanceKey (Just snapName) doDelete doRollback (BearerWrapper token) = do
+  ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
+  d <- runDB $ get (DeploymentInstanceDataKey instanceKey)
+  case d of
+    Nothing                                -> sendJSONError err404 (JSONError "notFound" "Instance not found" Null)
+    (Just (DeploymentInstanceData { .. })) -> do
+      ~(Just (DeploymentTemplateData { .. })) <- runDB $ get deploymentInstanceDataParent
+      if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
+        sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
+      else do
+        Config { .. } <- ask
+        if not $ matchSnapshotRequirements (T.unpack snapName) then sendJSONError err400 (JSONError "badRequest" "Bad snapshot name" Null) else do
+          case (doDelete, doRollback) of
+            (False, False) -> putTask tasksPool (DeploymentMakeSnapshot instanceKey snapName)
+            (True, _) -> putTask tasksPool (DeploymentDeleteSnapshot instanceKey snapName)
+            (False, True) -> putTask tasksPool (RollbackInstance instanceKey snapName)
+
 callGroupSnapshot :: Int -> Maybe Text -> Maybe Text -> Bool -> Bool -> BearerWrapper -> AppT ()
 callGroupSnapshot _ (Just "") _ _ _ _ = sendJSONError err400 (JSONError "badRequest" "Snapshot or group is not specified" Null)
 callGroupSnapshot _ _ (Just "") _ _ _ = sendJSONError err400 (JSONError "badRequest" "Snapshot or group is not specified" Null)
@@ -546,3 +566,4 @@ deploymentServer = getPagedTemplates
   :<|> vmPortAccessCheck
   :<|> getDeploymentInstancesStats
   :<|> callInstanceDestroy
+  :<|> callInstanceSnapshot
