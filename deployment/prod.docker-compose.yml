@@ -32,6 +32,7 @@ services:
       - 80:80
     restart: unless-stopped
   websocket:
+    profiles: ['app']
     image: labforge-websockify
     container_name: labforge-websockify
     hostname: websockify
