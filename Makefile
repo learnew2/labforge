@@ -51,11 +51,17 @@ start-dev: $(DEV_COMPOSE_FILE)
 destroy-dev: $(DEV_COMPOSE_FILE)
 	$(BASE_COMPOSE_COMMAND) -f $(DEV_COMPOSE_FILE) down
 
-deploy-prod: $(PROD_COMPOSE_FILE)
+deploy-prod-minimal: $(PROD_COMPOSE_FILE)
 	$(BASE_COMPOSE_COMMAND) -f $(PROD_COMPOSE_FILE) up -d
 
-destroy-prod: $(PROD_COMPOSE_FILE)
+destroy-prod-minimal: $(PROD_COMPOSE_FILE)
 	$(BASE_COMPOSE_COMMAND) -f $(PROD_COMPOSE_FILE) down
+
+deploy-prod: $(PROD_COMPOSE_FILE)
+	$(BASE_COMPOSE_COMMAND) -f $(PROD_COMPOSE_FILE) --profile app up -d
+
+destroy-prod: $(PROD_COMPOSE_FILE)
+	$(BASE_COMPOSE_COMMAND) -f $(PROD_COMPOSE_FILE) --profile app down
 
 define escape_image
 $(shell echo $(1) | sed 's/\//-/g')

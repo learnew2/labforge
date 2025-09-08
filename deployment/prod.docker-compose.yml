@@ -23,6 +23,7 @@ services:
     container_name: redis
     hostname: redis
   nginx:
+    profiles: ['app']
     image: labforge-nginx-prod
     container_name: labforge-nginx
     hostname: nginx
@@ -39,6 +40,7 @@ services:
       - ./websockify/tokens.cfg:/tokens.cfg:ro
       - ./websockify/entrypoint.sh:/entrypoint.sh:ro
   auth-service:
+    profiles: ['app']
     image: auth-service
     container_name: labforge-auth
     hostname: auth
@@ -47,6 +49,7 @@ services:
       - ../docker.env
       - ../auth.env
   cluster-manager:
+    profiles: ['app']
     image: cluster-manager
     container_name: labforge-cluster
     hostname: cluster
@@ -55,6 +58,7 @@ services:
       - ../docker.env
       - ../cluster.env
   deployment-api:
+    profiles: ['app']
     image: deployment-api
     container_name: labforge-deployment
     hostname: deployment
@@ -63,6 +67,7 @@ services:
       - ../docker.env
       - ../deployment.env
   frontend:
+    profiles: ['app']
     image: frontend-server
     container_name: labforge-frontend
     hostname: frontend
@@ -71,6 +76,7 @@ services:
       - ../docker.env
       - ../frontend.env
   kroki-proxy:
+    profiles: ['app']
     image: kroki-proxy
     container_name: labforge-kroki-proxy
     hostname: kroki
