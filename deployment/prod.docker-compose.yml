@@ -86,6 +86,7 @@ services:
       - ../docker.env
       - ../kroki.env
   kroki:
+    profiles: ['app']
     image: yuzutech/kroki
     container_name: labforge-kroki
     hostname: kroki-server
