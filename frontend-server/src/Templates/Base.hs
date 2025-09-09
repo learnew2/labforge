@@ -43,6 +43,8 @@ $doctype 5
         <div .navbar-start>
           <a href=/ .navbar-item>
             Главная
+          <a href=/docs/user-guide .navbar-item>
+            Руководство
     ^{body}
     <footer .class>
       <div .content.has-text-centered>
@@ -79,6 +81,8 @@ $doctype 5
         <div .navbar-start>
           <a href=/ .navbar-item>
             Главная
+          <a href=/docs/user-guide .navbar-item>
+            Руководство
         <div .navbar-end>
           $case token
             $of InactiveToken
