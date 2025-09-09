@@ -1,3 +1,7 @@
+x-extra-hosts:
+  &default-extra-hosts
+  - "auth.mrtstg.local:172.17.0.1"
+
 services:
   postgresql:
     image: postgres:15-alpine
@@ -77,3 +81,17 @@ services:
     restart: unless-stopped
     ports:
       - 8050:8000
+  dev-grafana:
+    image: grafana/grafana:12.2.0-17567790421-ubuntu
+    container_name: labforge-grafana
+    extra_hosts: *default-extra-hosts
+    restart: unless-stopped
+    hostname: grafana
+    user: root
+    ports:
+      - 3000:3000
+    env_file:
+      - ../.env
+    volumes:
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ../grafana:/var/lib/grafana

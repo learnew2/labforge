@@ -6,3 +6,4 @@ deployment/nginx/ssl
 deployment/nginx/ssl-prod
 *.tar
 .clients.json
+grafana

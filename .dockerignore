@@ -12,3 +12,4 @@ logs
 images
 *.tar
 images/
+grafana
