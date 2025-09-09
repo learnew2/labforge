@@ -1,5 +1,4 @@
 #!/bin/bash
-TARGET_REALM="ln2"
 USER_LOGIN_CLIENT="ln2"
 REALM_ROLES=(
     "cluster-admin"
@@ -12,6 +11,9 @@ REALM_ROLES=(
     "role-read"
     "user-read"
     "validate-users"
+    "grafana-admin"
+    "grafana-editor"
+    "grafana-viewer"
 )
 REALM_CLIENTS=(
     "cluster-manager"
@@ -34,12 +36,12 @@ USERS_ROLES=(
 cd /opt/keycloak/bin/
 ./kcadm.sh config credentials --server http://localhost:8080 --realm master --user $KC_BOOTSTRAP_ADMIN_USERNAME --password $KC_BOOTSTRAP_ADMIN_PASSWORD
 echo "Login successful!"
-./kcadm.sh get realms --offset 0 --limit 100 | grep -E "\"realm\".*\"$TARGET_REALM\"" &>/dev/null
+./kcadm.sh get realms --offset 0 --limit 100 | grep -E "\"realm\".*\"$KEYCLOAK_REALM\"" &>/dev/null
 if [ $? -eq 1 ]; then
-    echo "Realm $TARGET_REALM is not found"
-    ./kcadm.sh create realms -s realm=$TARGET_REALM -s enabled=true
+    echo "Realm $KEYCLOAK_REALM is not found"
+    ./kcadm.sh create realms -s realm=$KEYCLOAK_REALM -s enabled=true
     sleep 5
-    ./kcadm.sh get realms | grep -E "\"realm\".*\"$TARGET_REALM\"" &>/dev/null
+    ./kcadm.sh get realms | grep -E "\"realm\".*\"$KEYCLOAK_REALM\"" &>/dev/null
     if [ $? -eq 1 ]; then
         echo "Failed to create realm!"
         exit 1
@@ -48,7 +50,7 @@ else
     echo "Realm exists!"
 fi
 
-rolesList=$(./kcadm.sh get-roles --limit 100 -r $TARGET_REALM)
+rolesList=$(./kcadm.sh get-roles --limit 100 -r $KEYCLOAK_REALM)
 if [ $? -ne 0 ]; then
     echo "Failed to get roles"
     exit 1
@@ -58,13 +60,13 @@ for role in "${REALM_ROLES[@]}"; do
     echo $rolesList | grep -E "\"name\"[ ]+\:[ ]+\"$role\"" &> /dev/null
     if [ $? -ne 0 ]; then
         echo "Role $role does not exists!"
-        ./kcadm.sh create roles -r $TARGET_REALM -s name=$role -o
+        ./kcadm.sh create roles -r $KEYCLOAK_REALM -s name=$role -o
     else
         echo "Role $role exists!"
     fi
 done
 
-clientsList=$(./kcadm.sh get clients --limit 100 -r $TARGET_REALM)
+clientsList=$(./kcadm.sh get clients --limit 100 -r $KEYCLOAK_REALM)
 if [ $? -ne 0 ]; then
     echo "Failed to get clients"
     exit 1
@@ -76,9 +78,9 @@ for client in "${REALM_CLIENTS[@]}"; do
     if [ $? -ne 0 ]; then
         echo "Client $client does not exists!"
         if [ "$USER_LOGIN_CLIENT" = "$client" ]; then
-            ./kcadm.sh create clients -r $TARGET_REALM -s 'name=AuthPortal' -s clientId=$client -s 'redirectUris=["*"]' -s 'webOrigins=["*"]' -s 'standardFlowEnabled=true' -s 'serviceAccountsEnabled=false' -s baseUrl="$FRONTEND_HOSTNAME"
+            ./kcadm.sh create clients -r $KEYCLOAK_REALM -s 'name=AuthPortal' -s clientId=$client -s 'redirectUris=["*"]' -s 'webOrigins=["*"]' -s 'standardFlowEnabled=true' -s 'serviceAccountsEnabled=false' -s baseUrl="$FRONTEND_HOSTNAME"
         else
-            ./kcadm.sh create clients -r $TARGET_REALM -s name=$client -s clientId=$client -s 'serviceAccountsEnabled=true' -s 'standardFlowEnabled=false'
+            ./kcadm.sh create clients -r $KEYCLOAK_REALM -s name=$client -s clientId=$client -s 'serviceAccountsEnabled=true' -s 'standardFlowEnabled=false'
         fi
     else
         echo "Client $client exists!"
@@ -94,7 +96,7 @@ for (( i = 0; i <${#REALM_CLIENTS[@]}; i++)); do
     else
         IFS=',' read -ra roles_row <<< "${USERS_ROLES[$i]}"
         for role in "${roles_row[@]}"; do
-            ./kcadm.sh add-roles -r $TARGET_REALM --uusername service-account-$clientName --rolename $role
+            ./kcadm.sh add-roles -r $KEYCLOAK_REALM --uusername service-account-$clientName --rolename $role
         done
     fi
 done
