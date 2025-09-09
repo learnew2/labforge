@@ -359,8 +359,7 @@ deploymentEditPage tid t = do
   token <- canCreateDeployments t
   let ~(Just userToken) = t
   env <- asks $ getEnvFor DeploymentService
-  -- TODO: get all
-  (PagedResponse { responseObjects = templates }) <- globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates Nothing userToken)
+  templates <- iteratePagedResponse (\p -> globalDecoder' $ defaultRetryClientC env (C.getPagedTemplates (Just p) userToken))
   template <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentTemplate tid userToken)
   let names = (LBS.unpack . encode) $ map configTemplateName templates
   let availableInterfaces = (LBS.unpack . encode) [E1000, E1000E, VIRTIO, VMXNET3]

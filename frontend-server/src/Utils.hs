@@ -16,9 +16,17 @@ along with this program; if not, see <http://www.gnu.org/licenses>. -}
 module Utils where
 
 import           Api
+import           Config
 import           Data.Maybe
 import           Data.Text                    (Text)
 import           Deployment.Models.Deployment
+
+iteratePagedResponse :: (Int -> AppT (PagedResponse [a])) -> AppT [a]
+iteratePagedResponse f' = helper f' 1 [] where
+  helper :: (Int -> AppT (PagedResponse [a])) -> Int -> [a] -> AppT [a]
+  helper f page acc = do
+    v <- f page
+    if hasNextPages page v then helper f (page + 1) (responseObjects v ++ acc) else pure (responseObjects v ++ acc)
 
 prettyDeployStatus :: DeploymentStatus -> String
 prettyDeployStatus Deployed   = "Развернут"
