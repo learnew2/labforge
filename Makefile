@@ -6,6 +6,11 @@ BASE_COMPOSE_COMMAND=$(COMPOSE_BIN) --project-name labforge
 DEV_COMPOSE_FILE=deployment/docker-compose.yml
 PROD_COMPOSE_FILE=deployment/prod.docker-compose.yml
 
+fill-keycloak: install/keycloak.sh
+	docker cp install/keycloak.sh keycloak:/tmp/
+	docker exec keycloak bash /tmp/keycloak.sh
+	docker cp keycloak:/tmp/clients.json ./.clients.json
+
 update-tokens:
 	curl localhost:8001/api/cluster/websockify/config -o deployment/websockify/tokens.cfg
 
