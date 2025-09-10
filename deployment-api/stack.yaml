@@ -16,6 +16,6 @@ extra-deps:
   subdirs:
   - proxmox-fs-agent-api
 - git: https://github.com/learnew2/proxmox-deploy-toolkit.git
-  commit: e83141c6b8227ce2e6534e8ea18b8d5bf00a5a85
+  commit: bf7cd8d2f30e0d630015a9503f0115098b2dfcd9
 - git: https://github.com/learnew2/redis-utils.git
   commit: 3a9b7f55bed282b02da41bf849c5334548cbcaf5
