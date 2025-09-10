@@ -258,7 +258,7 @@ handleTask taskQuery (AllocateNode dID) = do
         (Right (Right (BriefUser { .. }))) -> do
           logInstance "Allocating deploy node"
           ~(Just (DeploymentTemplateData { .. })) <- runDB $ get deploymentInstanceDataParent
-          let vmTags = map unpack [deploymentTemplateDataTitle, fromMaybe "" userFirstName <> fromMaybe "" userLastName]
+          let vmTags = map unpack [deploymentTemplateDataTitle, fromMaybe "" userFirstName <> " " <> fromMaybe "" userLastName]
           clusterEnv <- asks $ getEnvFor ClusterManager
           nodeRequest <- withTokenVariable' $ \t -> do
             runClientApp clusterEnv $ Cluster.getDeployNode (BearerWrapper t)
