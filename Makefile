@@ -89,4 +89,4 @@ restore-images: ./images
 		echo "Restoring $(image)"; docker load -i ./images/$(call escape_image, $(image)).tar;)
 
 bundle:
-	tar -cvf labforge.tar deployment/ *-sample.env Makefile images/
+	tar -zcvf labforge.tar.gz --exclude={*/tokens.cfg,*/ssl*/*} *-sample.env Makefile images/ deployment/
