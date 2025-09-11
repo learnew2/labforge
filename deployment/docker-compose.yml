@@ -1,6 +1,9 @@
 x-extra-hosts:
   &default-extra-hosts
   - "auth.mrtstg.local:172.17.0.1"
+  - "prometheus:127.0.0.1"
+  - "nginx:127.0.0.1"
+  - "nginx-exporter:127.0.0.1"
 
 services:
   postgresql:
@@ -86,6 +89,7 @@ services:
     container_name: labforge-grafana
     extra_hosts: *default-extra-hosts
     restart: unless-stopped
+    network_mode: host
     hostname: grafana
     user: root
     ports:
@@ -94,4 +98,31 @@ services:
       - ../.env
     volumes:
       - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning/:/etc/grafana/provisioning/:ro
+      - ./grafana/dashboards/:/etc/grafana/dashboards/:ro
       - ../grafana:/var/lib/grafana
+  dev-nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.4
+    container_name: labforge-nginx-exporter
+    restart: unless-stopped
+    hostname: nginx-exporter
+    extra_hosts: *default-extra-hosts
+    network_mode: host
+    command: --nginx.scrape-uri=http://nginx:8081/stub_status
+    ports:
+      - 9113:9113
+  dev-prometheus:
+    image: prom/prometheus:v3.5.0
+    user: root
+    volumes:
+      - ./prometheus/:/etc/prometheus/:ro
+      - ../prometheus_data/:/prometheus/
+    container_name: labforge-prometheus
+    extra_hosts: *default-extra-hosts
+    network_mode: host
+    hostname: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    ports:
+      - 9090:9090
+    restart: unless-stopped

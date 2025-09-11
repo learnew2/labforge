@@ -91,3 +91,37 @@ services:
     container_name: labforge-kroki
     hostname: kroki-server
     restart: unless-stopped
+  grafana:
+    profiles: ['app']
+    image: grafana/grafana:12.2.0-17567790421-ubuntu
+    container_name: labforge-grafana
+    restart: unless-stopped
+    hostname: grafana
+    user: root
+    env_file:
+      - ../docker.env
+      - ../auth.env
+    volumes:
+      - ./grafana/grafana.ini:/etc/grafana/grafana.ini:ro
+      - ./grafana/provisioning/:/etc/grafana/provisioning/:ro
+      - ./grafana/dashboards/:/etc/grafana/dashboards/:ro
+      - ../grafana:/var/lib/grafana
+  nginx-exporter:
+    profiles: ['app']
+    image: nginx/nginx-prometheus-exporter:1.4
+    container_name: labforge-nginx-exporter
+    restart: unless-stopped
+    hostname: nginx-exporter
+    command: --nginx.scrape-uri=http://nginx:8080/stub_status
+  prometheus:
+    profiles: ['app']
+    image: prom/prometheus:v3.5.0
+    user: root
+    volumes:
+      - ./prometheus/:/etc/prometheus/:ro
+      - ../prometheus_data/:/prometheus/
+    container_name: labforge-prometheus
+    hostname: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+    restart: unless-stopped
