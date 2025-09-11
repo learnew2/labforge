@@ -11,5 +11,6 @@ frontend/node_modules
 logs
 images
 *.tar
+*.tar.gz
 images/
 grafana
