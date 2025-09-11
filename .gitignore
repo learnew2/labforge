@@ -7,3 +7,5 @@ deployment/nginx/ssl-prod
 *.tar
 .clients.json
 grafana
+!deployment/grafana
+prometheus_data
