@@ -25,6 +25,15 @@ import           Data.Text                      (Text)
 import           Models.JSONError
 import           Servant.Server
 
+grafanaAdmin :: Text
+grafanaAdmin = "grafana-admin"
+
+grafanaEditor :: Text
+grafanaEditor = "grafana-editor"
+
+grafanaViewer :: Text
+grafanaViewer = "grafana-viewer"
+
 deploymentCreator :: Text
 deploymentCreator = "deployment-create"
 

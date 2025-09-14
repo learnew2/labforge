@@ -89,6 +89,8 @@ $doctype 5
               <a href=/api/auth/login class="button">
                 Войти
             $of ActiveToken { .. }
+              $if any (flip elem tokenRealmRoles) [grafanaAdmin, grafanaEditor, grafanaViewer]
+                <a .navbar-item href=/grafana/> Мониторинг
               $if any (flip elem tokenRealmRoles) [deploymentAdmin, deploymentCreator, imageAdmin, imageAdmin]
                 <a .navbar-item href=/api/auth/portal> Портал
                 <div .navbar-item.has-dropdown.is-hoverable>
