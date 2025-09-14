@@ -407,11 +407,34 @@ deploymentEditPage tid t = do
       }
     }))
 
-    Alpine.data("netForm", () => ({
+    Alpine.data("netForm", (vmData, netIndex) => ({
+      init() {
+        if (vmData == undefined) { return; }
+        if (vmData.networks[netIndex]['cloudinit_address'] == 'dhcp') {
+          this.cloud_opts = 'dhcp'
+          this.cloudOptsChange(undefined)
+        } else if (vmData.networks[netIndex]['cloudinit_address'] != null) {
+          this.cloud_opts = 'manual'
+          this.cloudOptsChange(undefined)
+        }
+      },
       interfaces: #{preEscapedToMarkup availableInterfaces},
       netname: "",
       nettype: #{preEscapedToMarkup availableInterfaces}[0],
-      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
+      cloud_opts: "",
+      cloudOptsChange(event) {
+        if (this.cloud_opts == "dhcp") {
+           vmData.networks[netIndex]['cloudinit_address'] = 'dhcp'
+           vmData.networks[netIndex]['cloudinit_gateway'] = null
+        }
+        if (this.cloud_opts == "" || this.cloud_opts == "manual") {
+           if (vmData.networks[netIndex]['cloudinit_address'] == 'dhcp') {
+              vmData.networks[netIndex]['cloudinit_address'] = null
+           }
+           vmData.networks[netIndex]['cloudinit_gateway'] = null
+        }
+      },
+      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null, cloudinit_address: null, cloudinit_gateway: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
       removeNetwork(vm, index) { vm.networks.splice(index, 1) }
     }))
   })
@@ -467,11 +490,22 @@ deploymentCreatePage t = do
       }
     }))
 
-    Alpine.data("netForm", () => ({
+    Alpine.data("netForm", (vmData, netIndex) => ({
       interfaces: #{preEscapedToMarkup availableInterfaces},
       netname: "",
       nettype: #{preEscapedToMarkup availableInterfaces}[0],
-      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
+      cloud_opts: "",
+      cloudOptsChange(event) {
+        if (this.cloud_opts == "dhcp") {
+           vmData.networks[netIndex]['cloudinit_address'] = 'dhcp'
+           vmData.networks[netIndex]['cloudinit_gateway'] = null
+        }
+        if (this.cloud_opts == "" || this.cloud_opts == "manual") {
+           vmData.networks[netIndex]['cloudinit_address'] = null
+           vmData.networks[netIndex]['cloudinit_gateway'] = null
+        }
+      },
+      addNetwork(vm) { if (this.netname.length > 0) { vm.networks.push({name: this.netname, type: this.nettype, number: null, cloudinit_address: null, cloudinit_gateway: null}); this.netname = ''; this.nettype = this.interfaces[0]; } },
       removeNetwork(vm, index) { vm.networks.splice(index, 1) }
     }))
   })

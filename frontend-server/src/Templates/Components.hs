@@ -202,26 +202,37 @@ genericDeploymentForm = let
             <label .checkbox>
               <input .checkbox type=checkbox x-model="vms[index]['running']">
               Включить VM при развертывании
-          <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth x-data="netForm">
+          <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth x-data="netForm(undefined, undefined)">
             <input .input type="text" x-model="netname">
             <div .select>
               <select x-model="nettype">
                 <template x-for="avtype in interfaces">
                   <option x-text="avtype">
             <button .button @click="addNetwork(vms[index])"> Подключить
-          <template x-for="(netObj, netIndex) in vms[index]['networks']" x-data="netForm">
-            <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth>
-              <input .input type="text" x-model="vms[index]['networks'][netIndex]['name']">
-              <div .select>
-                <select x-model.number="vms[index]['networks'][netIndex]['number']">
-                  <option value=""> -
-                  <template x-for="i in 33">
-                    <option x-text="i - 1" *{netNumberBind}>
-              <div .select>
-                <select x-model="vms[index]['networks'][netIndex]['type']">
-                  <template x-for="avtype in interfaces">
-                    <option x-text="avtype" *{netSelectBind}>
-              <button .button @click="removeNetwork(vms[index], netObj)"> Удалить
+          <template x-for="(netObj, netIndex) in vms[index]['networks']">
+            <div x-data="netForm(vms[index], netIndex)">
+              <p .label> Сеть <span x-text="netObj['name']">
+              <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth>
+                <input .input type="text" x-model="vms[index]['networks'][netIndex]['name']">
+                <div .select>
+                  <select x-model.number="vms[index]['networks'][netIndex]['number']">
+                    <option value=""> -
+                    <template x-for="i in 33">
+                      <option x-text="i - 1" *{netNumberBind}>
+                <div .select>
+                  <select x-model="vms[index]['networks'][netIndex]['type']">
+                    <template x-for="avtype in interfaces">
+                      <option x-text="avtype" *{netSelectBind}>
+                <div .select>
+                  <select x-model="cloud_opts" x-on:change="cloudOptsChange">
+                    <option value=""> Не устанавливать адрес
+                    <option value="dhcp"> DHCP
+                    <option value="manual"> Ручной адрес
+                <button .button @click="removeNetwork(vms[index], netObj)"> Удалить
+              <template x-if="cloud_opts == 'manual' && vms[index]['networks'][netIndex]['number'] != null">
+                <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth>
+                  <input .input type="text" placeholder="IP-адрес" x-model.string="vms[index]['networks'][netIndex]['cloudinit_address']" minlength="7">
+                  <input .input type="text" placeholder="Шлюз" x-model="vms[index]['networks'][netIndex]['cloudinit_gateway']" minlength="7">
           <div .is-flex.is-flex-direction-row.is-align-items-center>
             <div .p-3>
               <button .button.is-danger @click="deleteVM(index)"> Удалить VM
