@@ -8,6 +8,7 @@ theme:
 nav:
   - Введение: ./index.md
   - Руководство пользователя: user-guide/index.md
+  - Создание шаблонов развертывания: usage-guide/deployment-templates.md
 
 plugins: 
   - search:
