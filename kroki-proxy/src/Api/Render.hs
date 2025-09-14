@@ -54,6 +54,24 @@ import           Service.Environment
 renderServer :: ServerT RenderAPI AppT
 renderServer = renderDeploymentTemplate
 
+generateNetworkLink :: M.Map String String -> Text -> Int -> ConfigVMNetwork -> Text
+generateNetworkLink nMap vmName 1 (ConfigVMNetwork { .. }) = do
+  let netName = T.pack $ fromMaybe configVMNetworkName (M.lookup configVMNetworkName nMap)
+  case (configVMInitAdddress, configVMNetworkNumber) of
+    (Just DHCP, Just _) -> do
+      vmName <> "-vm" <> " -- " <> netName <> "-net: dhcp"
+    (Just (Manual ip), Just _) -> do
+      vmName <> "-vm" <> " -- " <> netName <> "-net: " <> T.pack ip
+    _ -> vmName <> "-vm" <> " -- " <> netName <> "-net"
+generateNetworkLink nMap vmName _ (ConfigVMNetwork { .. }) = do
+  let netName = T.pack $ fromMaybe configVMNetworkName (M.lookup configVMNetworkName nMap)
+  case (configVMInitAdddress, configVMNetworkNumber) of
+    (Just DHCP, Just _) -> do
+      netName <> "-net" <> " -- " <> vmName <> "-vm: dhcp"
+    (Just (Manual ip), Just _) -> do
+      netName <> "-net" <> " -- " <> vmName <> "-vm: " <> T.pack ip
+    _ -> netName <> "-net" <> " -- " <> vmName <> "-vm"
+
 renderDeploymentTemplate :: Text -> BearerWrapper -> AppT Text
 renderDeploymentTemplate did (BearerWrapper token) = let
 
@@ -68,13 +86,13 @@ renderDeploymentTemplate did (BearerWrapper token) = let
           let vmDef = "\n" <> name <> "-vm" <> ": " <> name <> "{\nlink: /vnc/" <> displayValue <> "\n}\n" <> name <> "-vm" <> ".shape: cylinder\n"
           let vmNetAmount = (length . fromMaybe [] . configVMNetworks) vm
           let vmNetArr = fromMaybe [] $ configVMNetworks vm
-          let netDef = T.intercalate "\n" $ map ((\x -> if vmNetAmount == 1 then name <> "-vm" <> " -- " <> x <> "-net" else x <> "-net" <> " -- " <> name <> "-vm") . T.pack . (\x -> fromMaybe x $ M.lookup x nmap) . configVMNetworkName) vmNetArr
+          let netDef = T.intercalate "\n" $ map (generateNetworkLink nmap name vmNetAmount) vmNetArr
           helper (acc <> vmDef <> netDef) vms
         Nothing -> do
           let vmDef = "\n" <> name <> "-vm" <> ": " <> name <> "\n" <> name <> ".shape: cylinder"
           let vmNetAmount = (length . configVMNetworks) vm
           let vmNetArr = fromMaybe [] $ configVMNetworks vm
-          let netDef = T.intercalate "\n" $ map ((\x -> if vmNetAmount == 1 then name <> "-vm" <> " -- " <> x <> "-net" else x <> "-net" <> " -- " <> name <> "-vm") . T.pack . (\x -> fromMaybe x $ M.lookup x nmap) . configVMNetworkName) vmNetArr
+          let netDef = T.intercalate "\n" $ map (generateNetworkLink nmap name vmNetAmount) vmNetArr
           helper (acc <> vmDef <> netDef) vms
 
   f :: AppT (Maybe Text)
