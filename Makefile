@@ -5,6 +5,11 @@ ENV_FILE=.env
 BASE_COMPOSE_COMMAND=$(COMPOSE_BIN) --project-name labforge
 DEV_COMPOSE_FILE=deployment/docker-compose.yml
 PROD_COMPOSE_FILE=deployment/prod.docker-compose.yml
+ENV_SAMPLES := $(shell find ./ -name "*-sample.env" ! -name "docker-sample.env" 2> /dev/null)
+
+fill-envs: install/fillenv.sh
+	$(foreach image, $(ENV_SAMPLES), \
+		bash install/fillenv.sh $(image);)
 
 fill-keycloak: install/keycloak.sh
 	docker cp install/keycloak.sh keycloak:/tmp/
