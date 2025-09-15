@@ -4,6 +4,7 @@ x-extra-hosts:
   - "prometheus:127.0.0.1"
   - "nginx:127.0.0.1"
   - "nginx-exporter:127.0.0.1"
+  - "cadvisor:127.0.0.1"
 
 services:
   postgresql:
@@ -125,4 +126,21 @@ services:
       - --config.file=/etc/prometheus/prometheus.yml
     ports:
       - 9090:9090
+    restart: unless-stopped
+  dev-cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.52.0
+    container_name: labforge-cadvisor
+    hostname: cadvisor
+    network_mode: host
+    privileged: true
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    command:
+      - '-port=9092'
     restart: unless-stopped
