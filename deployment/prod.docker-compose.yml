@@ -125,3 +125,20 @@ services:
     command:
       - --config.file=/etc/prometheus/prometheus.yml
     restart: unless-stopped
+  cadvisor:
+    profiles: ['app']
+    image: gcr.io/cadvisor/cadvisor:v0.52.0
+    container_name: labforge-cadvisor
+    hostname: cadvisor
+    privileged: true
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    command:
+      - '-port=9092'
+    restart: unless-stopped
