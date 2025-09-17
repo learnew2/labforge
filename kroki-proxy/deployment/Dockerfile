@@ -5,11 +5,10 @@ RUN stack install --only-dependencies
 COPY . .
 RUN stack install --copy-bins
 
-FROM debian:12-slim AS runner
+FROM mrtstg/kpfu-debian:bookworm AS runner
 ENV TZ="Europe/Moscow"
-RUN apt-get update && apt-get install ca-certificates locales libpq-dev -y
-ENV LANG C.UTF-8
-ENV LC_ALL C.UTF-8
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked apt-get update && apt-get install ca-certificates libpq-dev -y
 WORKDIR /usr/src/app
 COPY --from=builder /root/.local/bin/kroki-proxy /usr/src/app/haskell-binary
 CMD /usr/src/app/haskell-binary -v migrate && /usr/src/app/haskell-binary run -p 8000
