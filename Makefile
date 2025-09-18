@@ -20,10 +20,10 @@ update-tokens:
 	curl localhost:8001/api/cluster/websockify/config -o deployment/websockify/tokens.cfg
 
 build-nginx-prod: ./deployment/nginx/Dockerfile ./labforge-docs
-	docker build --build-arg config_dir=deployment/nginx/conf.prod --build-arg ssl_dir=deployment/nginx/ssl-prod -t labforge-nginx-prod -f ./deployment/nginx/Dockerfile .
+	docker build --network host --build-arg config_dir=deployment/nginx/conf.prod --build-arg ssl_dir=deployment/nginx/ssl-prod -t labforge-nginx-prod -f ./deployment/nginx/Dockerfile .
 
 build-nginx: ./deployment/nginx/Dockerfile ./labforge-docs
-	docker build -t labforge-nginx -f ./deployment/nginx/Dockerfile .
+	docker build --network host -t labforge-nginx -f ./deployment/nginx/Dockerfile .
 
 build-bin: $(HS_SERVICES)
 	@for n in $(HS_SERVICES); do \
@@ -31,7 +31,7 @@ build-bin: $(HS_SERVICES)
 	done
 
 build-websockify: ./deployment/websockify/Dockerfile
-	docker build -t labforge-websockify -f ./deployment/websockify/Dockerfile .
+	docker build --network host -t labforge-websockify -f ./deployment/websockify/Dockerfile .
 
 install-deps: $(HS_SERVICES)
 	@for n in $(HS_SERVICES); do \
