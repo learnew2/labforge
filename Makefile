@@ -47,7 +47,7 @@ build-images:
 	mkdir ./images -p
 
 build-lib-image: deployment/Dockerfile
-	docker build -t labforge-haskell -f deployment/Dockerfile .
+	docker build --network host -t labforge-haskell -f deployment/Dockerfile .
 
 deploy-dev: $(DEV_COMPOSE_FILE)
 	$(BASE_COMPOSE_COMMAND) -f $(DEV_COMPOSE_FILE) up -d
