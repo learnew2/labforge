@@ -26,6 +26,7 @@ module Api.Pages
 
 import           Api
 import           Api.Keycloak.Models
+import           Api.Keycloak.Models.Group                (FoundGroup (groupName))
 import           Api.Keycloak.Models.Introspect
 import           Api.Keycloak.Models.User
 import           Api.Keycloak.Utils
@@ -54,7 +55,7 @@ import           Deployment.Models.Deployment
 import           Deployment.Models.Stats
 import           Kroki.Client
 import           Models.JSONError
-import           Network.HTTP.Types                       (urlEncode)
+import           Network.URI.Encode                       (encodeText)
 import           Proxmox.Deploy.Models.Config
 import           Proxmox.Deploy.Models.Config.Deploy
 import           Proxmox.Deploy.Models.Config.DeployAgent
@@ -91,7 +92,7 @@ type PagesAPI = AuthHeader' :> QueryParam "page" Int :> Get '[HTML] Html
   :<|> "image" :> "my" :> QueryParam "page" Int :> QueryParam "failedCreate" Text :> AuthHeader' :> Get '[HTML] Html
   :<|> "image" :> "create" :> QueryParam "name" Text :> QueryParam "id" Int :> AuthHeader' :> Get '[HTML] Html
   :<|> "deployment" :> Capture "deploymentId" Int :> "deploy" :> QueryParam "action" Text :> QueryParam "group" Text :> AuthHeader' :> Get '[HTML] Html
-  :<|> "deployment" :> Capture "deploymentId" Int :> "instances" :> QueryParam "page" Int :> QueryParam "refresh" Int :> AuthHeader' :> Get '[HTML] Html
+  :<|> "deployment" :> Capture "deploymentId" Int :> "instances" :> QueryParam "page" Int :> QueryParam "refresh" Int :> QueryParam "group" Text :> AuthHeader' :> Get '[HTML] Html
 
 globalDecoder' :: AppT (Either ClientError a) -> AppT a
 globalDecoder' v = do
@@ -127,36 +128,62 @@ pagesServer = indexPage
   :<|> deploymentDeployPage
   :<|> deploymentInstancesPage
 
-deploymentInstancesPage :: Int -> Maybe Int -> Maybe Int -> Maybe BearerWrapper -> AppT Html
-deploymentInstancesPage did pageN refreshFlag t = do
+deploymentInstancesPage :: Int -> Maybe Int -> Maybe Int -> Maybe Text -> Maybe BearerWrapper -> AppT Html
+deploymentInstancesPage did pageN refreshFlag groupFlag t = do
   token <- requireToken' t
   let ~(Just userToken) = t
   env <- asks $ getEnvFor DeploymentService
   let page = unpackPage pageN
   let refreshValue = fromMaybe 0 refreshFlag
   let refresh = refreshValue == 1
-  (DeploymentStats { .. }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentInstancesStats did userToken)
-  r@(PagedResponse { responseObjects=instances, responseTotal=total }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentTemplateInstances did (Just page) userToken)
+  (DeploymentStats { .. }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentInstancesStats did groupFlag userToken)
+  r@(PagedResponse { responseObjects=instances, responseTotal=total }) <- globalDecoder' $ defaultRetryClientC env (C.getDeploymentTemplateInstances did (Just page) groupFlag userToken)
   authEnv <- asks $ getEnvFor AuthService
+  allRoles <- withTokenVariable' $ \token' -> do
+    globalDecoder' $ defaultRetryClientC authEnv (Auth.getAllGroups (BearerWrapper token'))
+  let roleNames = map groupName allRoles
   userData' <- withTokenVariable' $ \t -> do
     defaultRetryClientC authEnv $ mapM (flip Auth.getUserBriefInfo (BearerWrapper t) . briefDeploymentUser) instances
   let userData = either (const M.empty) (M.fromList . map (\e -> (userID e, e))) userData'
   let hasNext = hasNextPages page r
   let totallyEmpty = page == 1 && total == 0
+  let group = fromMaybe "" groupFlag
+  let (opts :: [(String, String)]) = [("x-init", "$watch('group', (newValue, oldValue) => { let u = new URL(document.URL); u.searchParams.delete('page'); u.searchParams.delete('refresh'); u.searchParams.delete('group'); u.searchParams.append('group', newValue); window.location.replace(u.href); })")]
   (\v -> baseTemplate token Nothing (Just "Образы") v (Just genericInstanceActionFormData)) [shamlet|
 <div .container>
+  <div .box.mb-3 x-data={group:null} *{opts}>
+    <h2 .subtitle.is-5> Показывать для группы
+    ^{genericLargeSelectForm "group" roleNames}
   $if totallyEmpty
-    <h1 .title.is-3> Нет развернутых стендов!
+    <h1 .title.is-3>
+      $if T.length group > 0
+        Нет развернутых стендов на группу #{group}!
+      $else
+        Нет развернутых стендов!
   $else
     <div .is-flex.is-flex-direction-row.is-align-items-center>
       <div>
-       <h1 .title.is-3> #{briefDeploymentTitle (head instances)}: стенды
+        $if length instances > 0
+          <h1 .title.is-3>
+            $if T.length group > 0
+              #{briefDeploymentTitle (head instances)}: стенды на группу #{group}
+            $else
+              #{briefDeploymentTitle (head instances)}: стенды
+        $else
+          <h1 .title.is-3> Стенды
       <div>
-        <a .button href=/deployment/#{did}/instances?page=#{page}&refresh=#{abs $ refreshValue - 1}>
+        <a .button href=/deployment/#{did}/instances?page=#{page}&refresh=#{abs $ refreshValue - 1}&group=#{encodeText group}>
           $if not refresh
             Включить автообновление
           $else
             Выключить автообновление
+      $case groupFlag
+        $of Nothing
+        $of (Just group)
+          $if T.length group > 0
+            <div>
+              <a .button href=/deployment/#{did}/instances?page=#{page}>
+                Сбросить фильтр
     <div .box>
       $if createdAmount /= 0
         <p> Создано: #{createdAmount} / #{total}
@@ -194,12 +221,12 @@ deploymentInstancesPage did pageN refreshFlag t = do
       <ul .pagination-list>
         $if page /= 1
           <li>
-            <a .pagination-link href=/deployment/#{did}/instances?page=#{preEscapedToHtml $ page - 1}> #{page - 1}
+            <a .pagination-link href=/deployment/#{did}/instances?page=#{preEscapedToHtml $ page - 1}&group=#{encodeText group}> #{page - 1}
         <li>
           <a .pagination-link.is-current> #{page}
         $if hasNext
           <li>
-            <a .pagination-link href=/deployment/#{did}/instances?page=#{preEscapedToHtml $ page + 1}> #{page + 1}
+            <a .pagination-link href=/deployment/#{did}/instances?page=#{preEscapedToHtml $ page + 1}&group=#{encodeText group}> #{page + 1}
 $if refresh
   <script>
     setTimeout(function() {
