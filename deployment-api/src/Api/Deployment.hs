@@ -25,6 +25,7 @@ module Api.Deployment
 import           Api
 import           Api.Keycloak.Models
 import           Api.Keycloak.Models.Introspect
+import           Api.Keycloak.Models.User
 import           Api.Keycloak.Utils
 import           Api.Retry
 import           Auth
@@ -336,8 +337,19 @@ callInstanceDestroy instanceKey (BearerWrapper token) = do
         putTask tasksPool (DestroyInstance instanceKey)
         pure ()
 
-getDeploymentInstancesStats :: Int -> BearerWrapper -> AppT DeploymentStats
-getDeploymentInstancesStats tID (BearerWrapper token) = do
+generateGroupDeploymentFilter :: Maybe Text -> AppT [Filter DeploymentInstanceData]
+generateGroupDeploymentFilter Nothing = pure []
+generateGroupDeploymentFilter (Just "") = pure []
+generateGroupDeploymentFilter (Just group) = do
+  Config { .. } <- ask
+  r <- withTokenVariable' $ \t -> do
+    defaultRetryClientC authEnv (getAllGroupMembers group (BearerWrapper t))
+  case r of
+    (Left _) -> sendJSONError err400 (JSONError "badRequest" "Cant get group members" Null)
+    (Right users) -> pure [DeploymentInstanceDataOwnerId <-. map userID users]
+
+getDeploymentInstancesStats :: Int -> Maybe Text -> BearerWrapper -> AppT DeploymentStats
+getDeploymentInstancesStats tID targetGroup (BearerWrapper token) = do
   ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
   let instanceKey = DeploymentTemplateDataKey . fromIntegral $ tID
   template' <- runDB $ get instanceKey
@@ -347,17 +359,18 @@ getDeploymentInstancesStats tID (BearerWrapper token) = do
       if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
         sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
       else do
+        f <- generateGroupDeploymentFilter targetGroup
         (failedAmount, destroyingAmount, deployingAmount, deployedAmount, createdAmount) <- runDB $ do
-          f1 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Failed ]
-          f2 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Destroying ]
-          f3 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Deploying ]
-          f4 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Deployed ]
-          f5 <- count [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Created ]
+          f1 <- count $ [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Failed ] <> f
+          f2 <- count $ [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Destroying ] <> f
+          f3 <- count $ [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Deploying ] <> f
+          f4 <- count $ [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Deployed ] <> f
+          f5 <- count $ [ DeploymentInstanceDataParent ==. instanceKey, DeploymentInstanceDataState ==. Created ] <> f
           pure (f1, f2, f3, f4, f5)
         pure (DeploymentStats {failedAmount=failedAmount, destroyingAmount=destroyingAmount, deployingAmount=deployingAmount, deployedAmount=deployedAmount, createdAmount=createdAmount})
 
-getDeploymentTemplateInstances :: Int -> Maybe Int -> BearerWrapper -> AppT (PagedResponse [DeploymentInstanceBrief])
-getDeploymentTemplateInstances tID pageN (BearerWrapper token) = do
+getDeploymentTemplateInstances :: Int -> Maybe Int -> Maybe Text -> BearerWrapper -> AppT (PagedResponse [DeploymentInstanceBrief])
+getDeploymentTemplateInstances tID pageN targetGroup (BearerWrapper token) = do
   ~(ActiveToken { .. }) <- requireManyRealmRoles token [[deployTemplatesAdmin], [deployTemplatesCreator]]
   template' <- runDB $ get (DeploymentTemplateDataKey . fromIntegral $ tID)
   case template' of
@@ -366,9 +379,10 @@ getDeploymentTemplateInstances tID pageN (BearerWrapper token) = do
       if deployTemplatesAdmin `notElem` tokenRealmRoles && tokenUUID /= Just deploymentTemplateDataOwnerId then
         sendJSONError err403 (JSONError "notOwner" "You're not owner of template!" Null)
       else do
+        f <- generateGroupDeploymentFilter targetGroup
         let page = max 1 $ fromMaybe 1 pageN
-        instancesCount <- runDB $ count [ DeploymentInstanceDataParent ==. (DeploymentTemplateDataKey . fromIntegral $ tID)]
-        instances <- runDB $ selectList [ DeploymentInstanceDataParent ==. (DeploymentTemplateDataKey . fromIntegral $ tID)] [LimitTo pageSize, OffsetBy $ pageSize * (page - 1)]
+        instancesCount <- runDB . count $ [ DeploymentInstanceDataParent ==. (DeploymentTemplateDataKey . fromIntegral $ tID)] <> f
+        instances <- runDB $ selectList ([ DeploymentInstanceDataParent ==. (DeploymentTemplateDataKey . fromIntegral $ tID)] <> f) [LimitTo pageSize, OffsetBy $ pageSize * (page - 1)]
         pure $ PagedResponse
           { responseObjects=map
             (\e -> DeploymentInstanceBrief
