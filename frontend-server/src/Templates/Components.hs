@@ -1,15 +1,16 @@
 {-# LANGUAGE QuasiQuotes #-}
 module Templates.Components
   ( genericDeploymentForm
-  , genericGroupForm
   , genericGroupActionFormData
   , genericGroupActionForm
   , genericInstanceActionFormData
   , genericInstanceActionForm
+  , genericLargeSelectForm
   ) where
 
 import           Api.Keycloak.Models.Group
 import           Data.Text                 (Text)
+import qualified Data.Text                 as T
 import           Text.Blaze.Html
 import           Text.Hamlet
 
@@ -118,7 +119,7 @@ genericGroupActionForm templateId groups = [shamlet|
 <form .form @submit.prevent="" x-data="groupDeploymentFormData(#{preEscapedToMarkup templateId})">
   <label .label> Целевая группа Keycloak
   <div .control>
-    ^{genericGroupForm [("x-model", "group")] groups}
+    ^{genericLargeSelectForm "group" (map groupName groups)}
   <label .label> Выберите действие
   <div .control>
     <div .select>
@@ -139,13 +140,22 @@ genericGroupActionForm templateId groups = [shamlet|
   <button .button.is-fullwidth @click="sendRequest"> Выполнить
 |]
 
-genericGroupForm :: [(String, String)] -> [FoundGroup] -> Html
-genericGroupForm params groups = [shamlet|
-<div .select>
-  <select *{params}>
-    <option disabled> Выберите вариант
-    $forall (FoundGroup {groupName=groupName}) <- groups
-      <option value="#{groupName}"> #{groupName}
+
+genericLargeSelectForm :: String -> [Text] -> Html
+genericLargeSelectForm bindTo values = let
+  variantValues v = [("@click", bindTo <> "=\"" <> T.unpack v <> "\"; showed = false")]
+  modalValues = [(":class", "showed ? 'is-active' : ''")]
+  in [shamlet|
+<div x-data="{ showed: false }">
+  <div .control.is-fullwidth>
+    <input .input.is-clickable type=text placeholder="Нажмите для выбора" readonly x-model=#{preEscapedToMarkup bindTo} @click="showed = true">
+  <div .modal *{modalValues}>
+    <div .modal-background>
+    <div .modal-content>
+      <div .card>
+        $forall v <- values
+          <button .is-meduim.is-fullwidth.button.py-2.my-2 *{variantValues v}> #{v}
+    <button @click="showed = false" .modal-close.is-large aria-label=close>
 |]
 
 genericDeploymentForm = let
