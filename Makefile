@@ -10,6 +10,11 @@ ENV_SAMPLES := $(shell find ./ -name "*-sample.env" ! -name "docker-sample.env" 
 all:
 	echo ""
 
+build-ca: docker.env install/ca.sh
+	mkdir -p deployment/nginx/ssl-prod
+	bash install/ca.sh
+	cp ca/{labforge.crt,labforge.key,keycloak.crt,keycloak.key} deployment/nginx/ssl-prod/
+
 replace-nginx: docker.env install/nginx.sh
 	bash install/nginx.sh
 

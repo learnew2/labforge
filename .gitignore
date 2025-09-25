@@ -11,3 +11,4 @@ deployment/websockify/tokens.cfg
 grafana
 !deployment/grafana
 prometheus_data
+ca
