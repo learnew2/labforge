@@ -14,6 +14,8 @@ REALM_ROLES=(
     "grafana-admin"
     "grafana-editor"
     "grafana-viewer"
+    "realm-manager"
+    "full-admin"
 )
 REALM_CLIENTS=(
     "cluster-manager"
@@ -71,7 +73,6 @@ if [ $? -ne 0 ]; then
     echo "Failed to get clients"
     exit 1
 fi
-echo $clientsList
 
 for client in "${REALM_CLIENTS[@]}"; do
     echo $clientsList | grep -E "\"clientId\"[ ]+\:[ ]+\"$client\"" &> /dev/null
@@ -101,4 +102,40 @@ for (( i = 0; i <${#REALM_CLIENTS[@]}; i++)); do
     fi
 done
 
-./kcadm.sh get -r ln2 clients --limit 100 --offset 0 --fields 'clientId,name,secret' > /tmp/clients.json
+./kcadm.sh get -r ln2 clients --limit 100 --offset 0 --fields 'id,clientId,name,secret' > /tmp/clients.json
+
+echo "Creating composites"
+REALM_CLIENT_ID=$(cat /tmp/clients.json | jq ".[] | select(.clientId==\"realm-management\")" | jq .id -r)
+if [[ -z "$REALM_CLIENT_ID" ]]; then
+    echo "Realm client not found"
+else
+    ./kcadm.sh get clients/$REALM_CLIENT_ID/roles -r ln2 --limit 100 > /tmp/roles.json
+    TARGET_ROLES=(
+        "manage-users"
+        "query-users"
+        "query-groups"
+    )
+    for role in "${TARGET_ROLES[@]}"; do
+        ROLE_ID=$(cat /tmp/roles.json | jq ".[] | select(.name==\"$role\")" | jq .id -r)
+        if [[ -z "$ROLE_ID" ]]; then
+            echo "Client role not found"
+        else
+            ./kcadm.sh create -r ln2 roles/realm-manager/composites -b "[{\"id\":\"$ROLE_ID\"}]"
+        fi
+    done
+fi
+rm -f /tmp/roles.json
+./kcadm.sh get -r ln2 roles --limit 100 > /tmp/realm_roles.json
+for role in "${REALM_ROLES[@]}"; do
+    if [[ "$role" == "full-admin" ]]; then
+        continue
+    else
+        ROLE_ID=$(cat /tmp/realm_roles.json | jq ".[] | select(.name==\"$role\")" | jq .id -r)
+        if [[ -z "$ROLE_ID" ]]; then
+            echo "Role not found"
+        else
+            ./kcadm.sh create -r ln2 roles/full-admin/composites -b "[{\"id\":\"$ROLE_ID\"}]"
+        fi
+    fi
+done
+rm -f /tmp/realm_roles.json
