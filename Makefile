@@ -7,14 +7,23 @@ DEV_COMPOSE_FILE=deployment/docker-compose.yml
 PROD_COMPOSE_FILE=deployment/prod.docker-compose.yml
 ENV_SAMPLES := $(shell find ./ -name "*-sample.env" ! -name "docker-sample.env" 2> /dev/null)
 
+all:
+	echo ""
+
 fill-envs: install/fillenv.sh
 	$(foreach image, $(ENV_SAMPLES), \
 		bash install/fillenv.sh $(image);)
+
+create-admin: install/admin_init.sh
+	docker cp install/admin_init.sh keycloak:/tmp/
+	docker exec keycloak bash /tmp/admin_init.sh
+	docker exec keycloak rm -f /tmp/admin_init.sh
 
 fill-keycloak: install/keycloak.sh
 	docker cp install/keycloak.sh keycloak:/tmp/
 	docker exec keycloak bash /tmp/keycloak.sh
 	docker cp keycloak:/tmp/clients.json ./.clients.json
+	docker exec keycloak rm -f /tmp/keycloak.sh
 
 update-tokens:
 	curl localhost:8001/api/cluster/websockify/config -o deployment/websockify/tokens.cfg
