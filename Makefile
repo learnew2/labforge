@@ -10,6 +10,9 @@ ENV_SAMPLES := $(shell find ./ -name "*-sample.env" ! -name "docker-sample.env" 
 all:
 	echo ""
 
+replace-nginx: docker.env install/nginx.sh
+	bash install/nginx.sh
+
 fill-envs: install/fillenv.sh
 	$(foreach image, $(ENV_SAMPLES), \
 		bash install/fillenv.sh $(image);)
