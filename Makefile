@@ -6,6 +6,7 @@ BASE_COMPOSE_COMMAND=$(COMPOSE_BIN) --project-name labforge
 DEV_COMPOSE_FILE=deployment/docker-compose.yml
 PROD_COMPOSE_FILE=deployment/prod.docker-compose.yml
 ENV_SAMPLES := $(shell find ./ -name "*-sample.env" ! -name "docker-sample.env" 2> /dev/null)
+CA_CERTIFICATES=labforge.crt labforge.key keycloak.crt keycloak.key
 
 all:
 	echo ""
@@ -13,7 +14,9 @@ all:
 build-ca: docker.env install/ca.sh
 	mkdir -p deployment/nginx/ssl-prod
 	bash install/ca.sh
-	cp ca/{labforge.crt,labforge.key,keycloak.crt,keycloak.key} deployment/nginx/ssl-prod/
+	@for n in $(CA_CERTIFICATES); do \
+		(cp ca/$$n deployment/nginx/ssl-prod/); \
+	done
 
 replace-nginx: docker.env install/nginx.sh
 	bash install/nginx.sh
