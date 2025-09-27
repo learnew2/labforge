@@ -51,15 +51,15 @@ packages:
     git: https://github.com/learnew2/proxmox-fs-agent.git
     subdir: proxmox-fs-agent-api
 - completed:
-    commit: 6470e0a7043e682e1112ebe64793ccd2badb6757
+    commit: b07cb00b7a9ef6f235d6750add55fc5fd8af11ba
     git: https://github.com/learnew2/proxmox-deploy-toolkit.git
     name: proxmox-deploy-toolkit
     pantry-tree:
-      sha256: 3fa2e696692e19022cd2662b8e825335985b9ddd02b8092b01285be175a32e5f
+      sha256: 5b5bdf0a90c0dc15810bed6cc1835ddaad0ac6d3aaf8b431f21f5d5f86501f78
       size: 1433
-    version: 0.1.2.1
+    version: 0.1.2.2
   original:
-    commit: 6470e0a7043e682e1112ebe64793ccd2badb6757
+    commit: b07cb00b7a9ef6f235d6750add55fc5fd8af11ba
     git: https://github.com/learnew2/proxmox-deploy-toolkit.git
 - completed:
     commit: 3a9b7f55bed282b02da41bf849c5334548cbcaf5
