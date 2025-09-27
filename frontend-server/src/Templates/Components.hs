@@ -182,28 +182,34 @@ genericDeploymentForm = let
     <template x-for="(obj, index) in vms" *{indexKey}>
       <template x-if="vms[index]">
         <div .box>
-          <label .label> Название VM
-          <div .control>
-            <input .input type="text" x-model="vms[index]['name']">
-          <label .label> Клонировать из
-          <div .control>
-            <div .select>
-              <select x-model="vms[index]['clone_from']">
-                <option value="" disabled> Выберите шаблон
-                <template x-for="template in templates">
-                  <option x-text="template" *{templateBind}>
-          <label .label> Время ожидания после включения (в секундах)
-          <div .control>
-            <input .input type=number x-model.number="vms[index]['delay']">
-          <label .label> Кол-во ядер
-          <div .control>
-            <input .input type=number x-model.number="vms[index]['cores']">
-          <label .label> Кол-во ОЗУ (в МБ)
-          <div .control>
-            <input .input type=number x-model.number="vms[index]['memory']">
-          <label .label> Лимит нагрузки CPU (в ядрах)
-          <div .control>
-            <input .input type=number x-model.number="vms[index]['cpu_limit']">
+          <div .field>
+            <label .label> Название VM
+            <div .control>
+              <input .input type="text" x-model="vms[index]['name']">
+          <div .field>
+            <label .label> Клонировать из
+            <div .control>
+              <div .select>
+                <select x-model="vms[index]['clone_from']">
+                  <option value="" disabled> Выберите шаблон
+                  <template x-for="template in templates">
+                    <option x-text="template" *{templateBind}>
+          <div .field>
+            <label .label> Время ожидания после включения (в секундах)
+            <div .control>
+              <input .input type=number x-model.number="vms[index]['delay']">
+          <div .field>
+            <label .label> Кол-во ядер
+            <div .control>
+              <input .input type=number x-model.number="vms[index]['cores']">
+          <div .field>
+            <label .label> Кол-во ОЗУ (в МБ)
+            <div .control>
+              <input .input type=number x-model.number="vms[index]['memory']">
+          <div .field>
+            <label .label> Лимит нагрузки CPU (в ядрах)
+            <div .control>
+              <input .input type=number x-model.number="vms[index]['cpu_limit']">
           <div .control>
             <label .checkbox>
               <input .checkbox type=checkbox x-model="vms[index]['available']">
@@ -212,6 +218,21 @@ genericDeploymentForm = let
             <label .checkbox>
               <input .checkbox type=checkbox x-model="vms[index]['running']">
               Включить VM при развертывании
+          <div .field>
+            <label .label> (cloud-init) Логин пользователя
+            <div .control>
+              <input .input type=text x-model="vms[index]['cloudinit_user']">
+            <p .help> Опциальное поле, требует поддержки cloudinit
+          <div .field>
+            <label .label> (cloud-init) Пароль пользователя
+            <div .control>
+              <input .input type=text x-model="vms[index]['cloudinit_password']">
+            <p .help> Опциальное поле, требует поддержки cloudinit
+          <div .field>
+            <label .label> (cloud-init) SSH ключи
+            <div .control>
+              <textarea .textarea placeholder="Публичные SSH-ключи" rows=5 x-model="vms[index]['cloudinit_sshkeys']">
+            <p .help> Опциальное поле, требует поддержки cloudinit
           <div .is-flex.is-flex-direction-row.is-align-items-center.is-fullwidth x-data="netForm(undefined, undefined)">
             <input .input type="text" x-model="netname">
             <div .select>
